@@ -391,6 +391,137 @@ switch ($action) {
         $overrides = $stmt->fetchAll(PDO::FETCH_ASSOC);
         echo json_encode($overrides);
         break;
+
+    case 'export_host_overrides':
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename="host_alert_overrides.csv"');
+
+        $output = fopen('php://output', 'w');
+        fputcsv($output, [
+            'host_ip', 'host_name', 'enabled',
+            'cpu_warning', 'cpu_critical',
+            'memory_warning', 'memory_critical',
+            'disk_warning', 'disk_critical',
+            'gpu_warning', 'gpu_critical',
+            'status_delay_seconds'
+        ]);
+
+        $stmt = $pdo->query("SELECT host_ip, host_name, enabled, cpu_warning, cpu_critical, memory_warning, memory_critical, disk_warning, disk_critical, gpu_warning, gpu_critical, status_delay_seconds FROM host_alert_overrides ORDER BY host_ip");
+        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+            fputcsv($output, $row);
+        }
+        fclose($output);
+        exit;
+
+    case 'import_host_overrides':
+        if (empty($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
+            echo json_encode(['error' => 'CSV file upload failed']);
+            break;
+        }
+
+        $filePath = $_FILES['file']['tmp_name'];
+        $handle = fopen($filePath, 'r');
+        if ($handle === false) {
+            echo json_encode(['error' => 'Unable to read uploaded CSV']);
+            break;
+        }
+
+        $header = fgetcsv($handle);
+        if ($header === false) {
+            fclose($handle);
+            echo json_encode(['error' => 'Empty CSV file']);
+            break;
+        }
+
+        $map = [];
+        foreach ($header as $index => $name) {
+            $normalized = strtolower(trim($name));
+            $map[$normalized] = $index;
+        }
+
+        $requiredColumns = ['host_ip'];
+        foreach ($requiredColumns as $col) {
+            if (!isset($map[$col])) {
+                fclose($handle);
+                echo json_encode(['error' => "Missing required column: {$col}"]);
+                break 2;
+            }
+        }
+
+        $imported = 0;
+        while (($row = fgetcsv($handle)) !== false) {
+            $hostIp = trim($row[$map['host_ip']] ?? '');
+            if ($hostIp === '') {
+                continue;
+            }
+
+            $hostName = $map['host_name'] ?? null;
+            $enabledCol = $map['enabled'] ?? null;
+
+            $values = [
+                'host_ip' => $hostIp,
+                'host_name' => $hostName !== null ? trim($row[$hostName] ?? '') : $hostIp,
+                'enabled' => $enabledCol !== null ? (int)in_array(strtolower(trim($row[$enabledCol] ?? '1')), ['1', 'true', 'yes', 'y']) : 1,
+                'cpu_warning' => (int)($row[$map['cpu_warning']] ?? 80),
+                'cpu_critical' => (int)($row[$map['cpu_critical']] ?? 95),
+                'memory_warning' => (int)($row[$map['memory_warning']] ?? 80),
+                'memory_critical' => (int)($row[$map['memory_critical']] ?? 95),
+                'disk_warning' => (int)($row[$map['disk_warning']] ?? 85),
+                'disk_critical' => (int)($row[$map['disk_critical']] ?? 95),
+                'gpu_warning' => (int)($row[$map['gpu_warning']] ?? 80),
+                'gpu_critical' => (int)($row[$map['gpu_critical']] ?? 95),
+                'status_delay_seconds' => isset($map['status_delay_seconds']) && $row[$map['status_delay_seconds']] !== ''
+                    ? (int)$row[$map['status_delay_seconds']]
+                    : null,
+            ];
+
+            // Upsert similar to save_host_override
+            $stmt = $pdo->prepare("SELECT id FROM host_alert_overrides WHERE host_ip = ?");
+            $stmt->execute([$values['host_ip']]);
+            $existing = $stmt->fetch();
+
+            if ($existing) {
+                $sql = "UPDATE host_alert_overrides SET 
+                        host_name = ?, enabled = ?,
+                        cpu_warning = ?, cpu_critical = ?,
+                        memory_warning = ?, memory_critical = ?,
+                        disk_warning = ?, disk_critical = ?,
+                        gpu_warning = ?, gpu_critical = ?,
+                        status_delay_seconds = ?,
+                        updated_at = NOW()
+                        WHERE host_ip = ?";
+                $pdo->prepare($sql)->execute([
+                    $values['host_name'] ?: $values['host_ip'],
+                    $values['enabled'],
+                    $values['cpu_warning'], $values['cpu_critical'],
+                    $values['memory_warning'], $values['memory_critical'],
+                    $values['disk_warning'], $values['disk_critical'],
+                    $values['gpu_warning'], $values['gpu_critical'],
+                    $values['status_delay_seconds'],
+                    $values['host_ip'],
+                ]);
+            } else {
+                $sql = "INSERT INTO host_alert_overrides 
+                        (host_ip, host_name, enabled, cpu_warning, cpu_critical, memory_warning, memory_critical, disk_warning, disk_critical, gpu_warning, gpu_critical, status_delay_seconds)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                $pdo->prepare($sql)->execute([
+                    $values['host_ip'],
+                    $values['host_name'] ?: $values['host_ip'],
+                    $values['enabled'],
+                    $values['cpu_warning'], $values['cpu_critical'],
+                    $values['memory_warning'], $values['memory_critical'],
+                    $values['disk_warning'], $values['disk_critical'],
+                    $values['gpu_warning'], $values['gpu_critical'],
+                    $values['status_delay_seconds'],
+                ]);
+            }
+
+            $imported++;
+        }
+
+        fclose($handle);
+        echo json_encode(['success' => true, 'imported' => $imported]);
+        break;
         
     default:
         http_response_code(404);

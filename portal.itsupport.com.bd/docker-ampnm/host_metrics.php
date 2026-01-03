@@ -1478,6 +1478,22 @@ function updateSoundToggle() {
     }
 }
 
+function formatStatusDelayLabel(seconds) {
+    const s = parseInt(seconds, 10);
+    if (!s || isNaN(s) || s <= 0) {
+        return '<span class="ml-1 text-slate-500 text-[10px] md:text-xs" title="Uses global default: 300s ≈ 5m">(default 300s ≈ 5m)</span>';
+    }
+    const minutes = s / 60;
+    if (minutes < 1) {
+        return `<span class="ml-1 text-slate-400 text-[10px] md:text-xs" title="${s} seconds">(${s}s)</span>`;
+    }
+    if (minutes < 60) {
+        return `<span class="ml-1 text-slate-400 text-[10px] md:text-xs" title="${s} seconds">(${minutes}m)</span>`;
+    }
+    const hours = minutes / 60;
+    return `<span class="ml-1 text-slate-400 text-[10px] md:text-xs" title="${s} seconds">(${hours}h)</span>`;
+}
+
 async function loadHostOverridesTable() {
     const tableBody = document.getElementById('host-overrides-table-body');
     if (!tableBody) return;
@@ -1501,7 +1517,10 @@ async function loadHostOverridesTable() {
                     <input type="text" name="host_name" value="${(o.host_name || o.host_ip).replace(/"/g, '&quot;')}" class="w-full px-2 py-1 bg-slate-900 border border-slate-700 rounded text-xs md:text-sm text-slate-100" />
                 </td>
                 <td class="px-3 py-2 text-center">
-                    <input type="number" name="status_delay_seconds" min="30" max="86400" value="${o.status_delay_seconds !== null ? o.status_delay_seconds : ''}" class="w-20 px-2 py-1 bg-slate-900 border border-slate-700 rounded text-xs md:text-sm text-slate-100 text-center" />
+                    <div class="flex flex-col items-center gap-1">
+                        <input type="number" name="status_delay_seconds" min="30" max="86400" value="${o.status_delay_seconds !== null ? o.status_delay_seconds : ''}" class="w-20 px-2 py-1 bg-slate-900 border border-slate-700 rounded text-xs md:text-sm text-slate-100 text-center" />
+                        ${formatStatusDelayLabel(o.status_delay_seconds)}
+                    </div>
                 </td>
                 <td class="px-3 py-2 text-center">
                     <input type="number" name="cpu_warning" min="0" max="100" value="${o.cpu_warning}" class="w-14 px-1 py-1 bg-slate-900 border border-slate-700 rounded text-xs text-slate-100 text-center" /> /
@@ -1630,6 +1649,40 @@ async function applyBulkStatusDelay() {
         if (hostIp) {
             await bulkSaveHostOverride(hostIp);
         }
+    }
+}
+
+function exportHostOverridesCsv() {
+    window.location.href = 'api.php?action=export_host_overrides';
+}
+
+async function importHostOverridesCsv(input) {
+    if (!input.files || !input.files[0]) {
+        return;
+    }
+
+    const file = input.files[0];
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+        const response = await fetch('api.php?action=import_host_overrides', {
+            method: 'POST',
+            body: formData
+        });
+        const result = await response.json();
+
+        if (result.success) {
+            notyf.success(`Imported ${result.imported} host override(s)`);
+            input.value = '';
+            loadHosts();
+            loadHostOverridesTable();
+        } else {
+            notyf.error(result.error || 'Failed to import CSV');
+        }
+    } catch (error) {
+        console.error('Failed to import CSV:', error);
+        notyf.error('Failed to import CSV');
     }
 }
 
