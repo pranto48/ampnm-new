@@ -537,11 +537,6 @@ switch ($action) {
             $updateParams = $params;
             $updateParams[] = $id;
 
-            // Only add user_id filter if the user is NOT a viewer
-            if ($user_role !== 'viewer') {
-                $updateSql .= " AND user_id = ?";
-                $updateParams[] = $current_user_id;
-            }
             $stmt = $pdo->prepare($updateSql); 
             $stmt->execute($updateParams);
 
