@@ -1494,6 +1494,45 @@ function formatStatusDelayLabel(seconds) {
     return `<span class="ml-1 text-slate-400 text-[10px] md:text-xs" title="${s} seconds">(${hours}h)</span>`;
 }
 
+function initHostOverridesFilters() {
+    const tableBody = document.getElementById('host-overrides-table-body');
+    if (!tableBody) return;
+
+    const tableWrapper = tableBody.closest('div.overflow-x-auto');
+    if (!tableWrapper) return;
+
+    // Avoid duplicating controls if they already exist in the DOM
+    if (document.getElementById('host-overrides-search')) {
+        return;
+    }
+
+    const controls = document.createElement('div');
+    controls.className = 'flex flex-col md:flex-row md:items-center md:justify-between gap-2 text-xs md:text-sm mb-3';
+    controls.innerHTML = `
+        <div class="flex items-center gap-2 w-full md:w-1/2">
+            <label for="host-overrides-search" class="text-slate-400 whitespace-nowrap">Search hosts:</label>
+            <input id="host-overrides-search" type="text" placeholder="Filter by IP or name" class="flex-1 px-3 py-1.5 bg-slate-900 border border-slate-600 rounded text-xs md:text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+        </div>
+        <label class="inline-flex items-center gap-2 text-slate-300 mt-2 md:mt-0">
+            <input id="host-overrides-enabled-only" type="checkbox" class="rounded border-slate-600 bg-slate-900" />
+            <span>Show only enabled overrides</span>
+        </label>
+    `;
+
+    tableWrapper.parentNode.insertBefore(controls, tableWrapper);
+
+    // Wire up events to existing filter function
+    const searchInput = controls.querySelector('#host-overrides-search');
+    const enabledOnly = controls.querySelector('#host-overrides-enabled-only');
+    if (searchInput) {
+        searchInput.addEventListener('input', filterHostOverridesTable);
+    }
+    if (enabledOnly) {
+        enabledOnly.addEventListener('change', filterHostOverridesTable);
+    }
+}
+
+
 async function loadHostOverridesTable() {
     const tableBody = document.getElementById('host-overrides-table-body');
     if (!tableBody) return;
@@ -1549,10 +1588,45 @@ async function loadHostOverridesTable() {
                 </td>
             </tr>
         `).join('');
+
+        filterHostOverridesTable();
     } catch (error) {
         console.error('Failed to load host overrides:', error);
         tableBody.innerHTML = '<tr><td colspan="9" class="px-3 py-4 text-center text-red-400">Failed to load overrides</td></tr>';
     }
+}
+
+function filterHostOverridesTable() {
+    const tableBody = document.getElementById('host-overrides-table-body');
+    if (!tableBody) return;
+
+    const searchInput = document.getElementById('host-overrides-search');
+    const enabledOnlyCheckbox = document.getElementById('host-overrides-enabled-only');
+
+    const searchTerm = searchInput ? searchInput.value.trim().toLowerCase() : '';
+    const enabledOnly = enabledOnlyCheckbox ? enabledOnlyCheckbox.checked : false;
+
+    const rows = Array.from(tableBody.querySelectorAll('tr'));
+
+    if (!rows.length || !rows[0].hasAttribute('data-host-ip')) {
+        // Nothing to filter (likely an empty/error state row)
+        return;
+    }
+
+    rows.forEach(row => {
+        const hostIpCell = row.querySelector('td:nth-child(2)');
+        const hostNameInput = row.querySelector('input[name="host_name"]');
+        const enabledCheckbox = row.querySelector('input[name="enabled"]');
+
+        const hostIp = hostIpCell ? hostIpCell.textContent.trim().toLowerCase() : '';
+        const hostName = hostNameInput ? hostNameInput.value.trim().toLowerCase() : '';
+        const isEnabled = enabledCheckbox ? enabledCheckbox.checked : false;
+
+        const matchesSearch = !searchTerm || hostIp.includes(searchTerm) || hostName.includes(searchTerm);
+        const matchesEnabled = !enabledOnly || isEnabled;
+
+        row.style.display = (matchesSearch && matchesEnabled) ? '' : 'none';
+    });
 }
 
 async function bulkSaveHostOverride(hostIp) {
@@ -1689,6 +1763,7 @@ async function importHostOverridesCsv(input) {
 loadHosts();
 updateNotificationToggle();
 updateSoundToggle();
+initHostOverridesFilters();
 loadHostOverridesTable();
 setInterval(loadHosts, 10000);
 </script>
