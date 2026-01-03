@@ -131,6 +131,39 @@ $serverUrl = $protocol . $_SERVER['HTTP_HOST'];
             </div>
         </div>
     </div>
+    
+    <?php if ($user_role === 'admin'): ?>
+    <!-- Admin: Bulk Per-Host Overrides Table -->
+    <div class="mt-8 bg-slate-800/50 rounded-xl border border-slate-700 p-4">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-3">
+            <div>
+                <h3 class="text-white font-medium flex items-center gap-2"><i class="fas fa-list-ul text-purple-400"></i>Per-Host Threshold Overrides</h3>
+                <p class="text-xs text-slate-400">View and adjust status delay and alert thresholds for all hosts with overrides.</p>
+            </div>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="min-w-full text-xs md:text-sm text-slate-300">
+                <thead class="bg-slate-900/60">
+                    <tr>
+                        <th class="px-3 py-2 text-left whitespace-nowrap">Host IP</th>
+                        <th class="px-3 py-2 text-left whitespace-nowrap">Host Name</th>
+                        <th class="px-3 py-2 text-center whitespace-nowrap">Status Delay (s)</th>
+                        <th class="px-3 py-2 text-center whitespace-nowrap">CPU W/C</th>
+                        <th class="px-3 py-2 text-center whitespace-nowrap">Memory W/C</th>
+                        <th class="px-3 py-2 text-center whitespace-nowrap">Disk W/C</th>
+                        <th class="px-3 py-2 text-center whitespace-nowrap">GPU W/C</th>
+                        <th class="px-3 py-2 text-center whitespace-nowrap">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="host-overrides-table-body">
+                    <tr>
+                        <td colspan="8" class="px-3 py-4 text-center text-slate-500">Loading overrides...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <?php endif; ?>
 </div>
 
 <!-- Installation Guide Modal -->
@@ -1435,9 +1468,117 @@ function updateSoundToggle() {
     }
 }
 
+async function loadHostOverridesTable() {
+    const tableBody = document.getElementById('host-overrides-table-body');
+    if (!tableBody) return;
+
+    try {
+        const response = await fetch('api.php?action=get_all_host_overrides');
+        const overrides = await response.json();
+
+        if (!overrides || overrides.length === 0) {
+            tableBody.innerHTML = '<tr><td colspan="8" class="px-3 py-4 text-center text-slate-500">No per-host overrides configured yet.</td></tr>';
+            return;
+        }
+
+        tableBody.innerHTML = overrides.map(o => `
+            <tr data-host-ip="${o.host_ip}">
+                <td class="px-3 py-2 whitespace-nowrap text-slate-300 text-xs md:text-sm">${o.host_ip}</td>
+                <td class="px-3 py-2 whitespace-nowrap">
+                    <input type="text" name="host_name" value="${(o.host_name || o.host_ip).replace(/"/g, '&quot;')}" class="w-full px-2 py-1 bg-slate-900 border border-slate-700 rounded text-xs md:text-sm text-slate-100" />
+                </td>
+                <td class="px-3 py-2 text-center">
+                    <input type="number" name="status_delay_seconds" min="30" max="86400" value="${o.status_delay_seconds !== null ? o.status_delay_seconds : ''}" class="w-20 px-2 py-1 bg-slate-900 border border-slate-700 rounded text-xs md:text-sm text-slate-100 text-center" />
+                </td>
+                <td class="px-3 py-2 text-center">
+                    <input type="number" name="cpu_warning" min="0" max="100" value="${o.cpu_warning}" class="w-14 px-1 py-1 bg-slate-900 border border-slate-700 rounded text-xs text-slate-100 text-center" /> /
+                    <input type="number" name="cpu_critical" min="0" max="100" value="${o.cpu_critical}" class="w-14 px-1 py-1 bg-slate-900 border border-slate-700 rounded text-xs text-slate-100 text-center" />
+                </td>
+                <td class="px-3 py-2 text-center">
+                    <input type="number" name="memory_warning" min="0" max="100" value="${o.memory_warning}" class="w-14 px-1 py-1 bg-slate-900 border border-slate-700 rounded text-xs text-slate-100 text-center" /> /
+                    <input type="number" name="memory_critical" min="0" max="100" value="${o.memory_critical}" class="w-14 px-1 py-1 bg-slate-900 border border-slate-700 rounded text-xs text-slate-100 text-center" />
+                </td>
+                <td class="px-3 py-2 text-center">
+                    <input type="number" name="disk_warning" min="0" max="100" value="${o.disk_warning}" class="w-14 px-1 py-1 bg-slate-900 border border-slate-700 rounded text-xs text-slate-100 text-center" /> /
+                    <input type="number" name="disk_critical" min="0" max="100" value="${o.disk_critical}" class="w-14 px-1 py-1 bg-slate-900 border border-slate-700 rounded text-xs text-slate-100 text-center" />
+                </td>
+                <td class="px-3 py-2 text-center">
+                    <input type="number" name="gpu_warning" min="0" max="100" value="${o.gpu_warning}" class="w-14 px-1 py-1 bg-slate-900 border border-slate-700 rounded text-xs text-slate-100 text-center" /> /
+                    <input type="number" name="gpu_critical" min="0" max="100" value="${o.gpu_critical}" class="w-14 px-1 py-1 bg-slate-900 border border-slate-700 rounded text-xs text-slate-100 text-center" />
+                </td>
+                <td class="px-3 py-2 text-center whitespace-nowrap">
+                    <label class="inline-flex items-center gap-1 mr-3 text-xs md:text-sm text-slate-300">
+                        <input type="checkbox" name="enabled" ${o.enabled ? 'checked' : ''} class="rounded border-slate-600 bg-slate-900" />
+                        <span>Enabled</span>
+                    </label>
+                    <button onclick="bulkSaveHostOverride('${o.host_ip}')" class="px-2 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded text-xs md:text-sm">
+                        <i class="fas fa-save mr-1"></i>Save
+                    </button>
+                </td>
+            </tr>
+        `).join('');
+    } catch (error) {
+        console.error('Failed to load host overrides:', error);
+        tableBody.innerHTML = '<tr><td colspan="8" class="px-3 py-4 text-center text-red-400">Failed to load overrides</td></tr>';
+    }
+}
+
+async function bulkSaveHostOverride(hostIp) {
+    const row = document.querySelector(`tr[data-host-ip="${hostIp}"]`);
+    if (!row) return;
+
+    const enabled = row.querySelector('input[name="enabled"]').checked;
+    const hostNameInput = row.querySelector('input[name="host_name"]');
+    const delayInput = row.querySelector('input[name="status_delay_seconds"]');
+
+    const settings = {
+        host_ip: hostIp,
+        host_name: hostNameInput && hostNameInput.value ? hostNameInput.value : hostIp,
+        enabled: enabled,
+        cpu_warning: parseInt(row.querySelector('input[name="cpu_warning"]').value) || 80,
+        cpu_critical: parseInt(row.querySelector('input[name="cpu_critical"]').value) || 95,
+        memory_warning: parseInt(row.querySelector('input[name="memory_warning"]').value) || 80,
+        memory_critical: parseInt(row.querySelector('input[name="memory_critical"]').value) || 95,
+        disk_warning: parseInt(row.querySelector('input[name="disk_warning"]').value) || 85,
+        disk_critical: parseInt(row.querySelector('input[name="disk_critical"]').value) || 95,
+        gpu_warning: parseInt(row.querySelector('input[name="gpu_warning"]').value) || 80,
+        gpu_critical: parseInt(row.querySelector('input[name="gpu_critical"]').value) || 95,
+        status_delay_seconds: delayInput && delayInput.value ? parseInt(delayInput.value) : 300
+    };
+
+    const metrics = ['cpu', 'memory', 'disk', 'gpu'];
+    for (const metric of metrics) {
+        if (settings[`${metric}_warning`] >= settings[`${metric}_critical`]) {
+            notyf.error(`${metric.toUpperCase()} warning must be less than critical`);
+            return;
+        }
+    }
+
+    try {
+        const response = await fetch('api.php?action=save_host_override', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(settings)
+        });
+        const result = await response.json();
+
+        if (result.success) {
+            notyf.success('Host override saved');
+            loadHosts();
+            loadHostOverridesTable();
+        } else {
+            notyf.error(result.error || 'Failed to save');
+        }
+    } catch (error) {
+        console.error('Failed to save host override:', error);
+        notyf.error('Failed to save');
+    }
+}
+
 loadHosts();
 updateNotificationToggle();
 updateSoundToggle();
+loadHostOverridesTable();
 setInterval(loadHosts, 10000);
 </script>
 
