@@ -291,6 +291,7 @@ try {
             `disk_critical` INT(3) DEFAULT 95,
             `gpu_warning` INT(3) DEFAULT 80,
             `gpu_critical` INT(3) DEFAULT 95,
+            `status_delay_seconds` INT(11) NULL,
             `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             INDEX `idx_host_alert_overrides_ip` (`host_ip`)

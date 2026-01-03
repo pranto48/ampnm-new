@@ -484,6 +484,16 @@ $serverUrl = $protocol . $_SERVER['HTTP_HOST'];
                         </div>
                     </div>
                 </div>
+                
+                <!-- Status Delay (seconds) -->
+                <div class="bg-slate-900/50 rounded-lg p-4 border border-slate-700">
+                    <h4 class="text-white font-medium mb-3"><i class="fas fa-clock text-slate-400 mr-2"></i>Status Delay</h4>
+                    <div>
+                        <label class="block text-slate-400 text-xs mb-1">Seconds before a host is considered Offline</label>
+                        <input type="number" id="override-status-delay" min="30" max="86400" value="300" 
+                               class="w-full px-3 py-2 bg-slate-800 border border-slate-600 rounded-lg text-white text-sm">
+                    </div>
+                </div>
             </div>
         </div>
         <div class="p-4 border-t border-slate-700 flex justify-between">
@@ -668,9 +678,9 @@ function showNewAgentNotification(host) {
 // Host card template
 function createHostCard(host) {
     const lastUpdate = host.created_at ? new Date(host.created_at).toLocaleString() : 'Never';
-    const isRecent = host.created_at && (Date.now() - new Date(host.created_at).getTime()) < 300000;
-    const statusClass = isRecent ? 'bg-green-500' : 'bg-red-500';
-    const statusText = isRecent ? 'Online' : 'Offline';
+    const isOnline = isHostOnline(host);
+    const statusClass = isOnline ? 'bg-green-500' : 'bg-red-500';
+    const statusText = isOnline ? 'Online' : 'Offline';
     
     const firstSeen = host.first_seen_at ? new Date(host.first_seen_at) : null;
     const firstSeenDisplay = firstSeen ? getTimeAgo(firstSeen) : 'Unknown';
@@ -768,6 +778,20 @@ function getTimeAgo(date) {
     return 'Just now';
 }
 
+function getHostStatusDelaySeconds(host) {
+    const overrideDelay = host.status_delay_seconds !== null && host.status_delay_seconds !== undefined
+        ? parseInt(host.status_delay_seconds, 10)
+        : NaN;
+    const delay = !isNaN(overrideDelay) && overrideDelay > 0 ? overrideDelay : 300; // default 300s
+    return delay * 1000; // ms
+}
+
+function isHostOnline(host) {
+    if (!host.created_at) return false;
+    const maxAgeMs = getHostStatusDelaySeconds(host);
+    return (Date.now() - new Date(host.created_at).getTime()) < maxAgeMs;
+}
+
 async function loadHosts() {
     try {
         const response = await fetch('api.php?action=get_all_hosts');
@@ -817,7 +841,7 @@ async function loadHosts() {
 
 function updateAgentStatusSummary(hosts) {
     const registeredCount = hosts.length;
-    const onlineCount = hosts.filter(h => h.created_at && (Date.now() - new Date(h.created_at).getTime()) < 300000).length;
+    const onlineCount = hosts.filter(h => isHostOnline(h)).length;
     const offlineCount = registeredCount - onlineCount;
     
     document.getElementById('registered-count').textContent = registeredCount;
@@ -1268,6 +1292,7 @@ async function loadHostOverride(hostIp) {
             document.getElementById('override-disk-critical').value = data.disk_critical ?? 95;
             document.getElementById('override-gpu-warning').value = data.gpu_warning ?? 80;
             document.getElementById('override-gpu-critical').value = data.gpu_critical ?? 95;
+            document.getElementById('override-status-delay').value = data.status_delay_seconds ?? 300;
         } else {
             enabledCheckbox.checked = false;
             document.getElementById('override-cpu-warning').value = 80;
@@ -1278,6 +1303,7 @@ async function loadHostOverride(hostIp) {
             document.getElementById('override-disk-critical').value = 95;
             document.getElementById('override-gpu-warning').value = 80;
             document.getElementById('override-gpu-critical').value = 95;
+            document.getElementById('override-status-delay').value = 300;
         }
         
         thresholdsDiv.style.opacity = enabledCheckbox.checked ? '1' : '0.5';
@@ -1307,7 +1333,8 @@ async function saveHostOverride() {
         disk_warning: parseInt(document.getElementById('override-disk-warning').value) || 85,
         disk_critical: parseInt(document.getElementById('override-disk-critical').value) || 95,
         gpu_warning: parseInt(document.getElementById('override-gpu-warning').value) || 80,
-        gpu_critical: parseInt(document.getElementById('override-gpu-critical').value) || 95
+        gpu_critical: parseInt(document.getElementById('override-gpu-critical').value) || 95,
+        status_delay_seconds: parseInt(document.getElementById('override-status-delay').value) || 300
     };
     
     const metrics = ['cpu', 'memory', 'disk', 'gpu'];
