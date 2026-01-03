@@ -32,7 +32,21 @@ MapApp.network = {
             if (params.nodes.length > 0) { 
                 const nodeId = params.nodes[0]; 
                 const position = MapApp.state.network.getPositions([nodeId])[nodeId]; 
-                await MapApp.api.post('update_device', { id: nodeId, updates: { x: position.x, y: position.y } }); 
+                try {
+                    const updatedDevice = await MapApp.api.post('update_device', { id: nodeId, updates: { x: position.x, y: position.y } }); 
+                    // Also update local node data so future operations use the latest position
+                    const node = MapApp.state.nodes.get(nodeId);
+                    if (node && node.deviceData) {
+                        node.deviceData.x = updatedDevice.x;
+                        node.deviceData.y = updatedDevice.y;
+                        MapApp.state.nodes.update({ id: nodeId, deviceData: node.deviceData });
+                    }
+                } catch (error) {
+                    console.error('Failed to save device position:', error);
+                    if (window.notyf) {
+                        window.notyf.error(error.message || 'Failed to save device position.');
+                    }
+                }
             } 
         });
         
