@@ -57,12 +57,33 @@ MapApp.ui = {
     populateLegend: () => {
         const legendContainer = document.getElementById('status-legend');
         if (!legendContainer) return;
+
+        // Device status legend
         const statusOrder = ['online', 'warning', 'critical', 'offline', 'unknown'];
-        legendContainer.innerHTML = statusOrder.map(status => {
+        const statusLegend = statusOrder.map(status => {
             const color = MapApp.config.statusColorMap[status];
             const label = status.charAt(0).toUpperCase() + status.slice(1);
             return `<div class="legend-item"><div class="legend-dot" style="background-color: ${color};"></div><span>${label}</span></div>`;
         }).join('');
+
+        // Connection types legend (uses edgeColorMap)
+        const connectionTypes = Object.entries(MapApp.config.edgeColorMap).map(([type, color]) => {
+            const label = type
+                .replace(/-/g, ' ')
+                .replace(/\b\w/g, c => c.toUpperCase());
+            return `<div class="legend-item"><div class="legend-dot" style="background-color: ${color};"></div><span>${label}</span></div>`;
+        }).join('');
+
+        legendContainer.innerHTML = `
+            <div class="legend-section">
+                <div class="legend-title">Device Status</div>
+                ${statusLegend}
+            </div>
+            <div class="legend-section" style="margin-top: 0.5rem; border-top: 1px solid #334155; padding-top: 0.5rem;">
+                <div class="legend-title">Connection Types</div>
+                ${connectionTypes}
+            </div>
+        `;
     },
 
     openEdgeModal: (edgeId) => {
