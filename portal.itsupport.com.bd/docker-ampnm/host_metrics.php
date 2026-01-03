@@ -140,11 +140,21 @@ $serverUrl = $protocol . $_SERVER['HTTP_HOST'];
                 <h3 class="text-white font-medium flex items-center gap-2"><i class="fas fa-list-ul text-purple-400"></i>Per-Host Threshold Overrides</h3>
                 <p class="text-xs text-slate-400">View and adjust status delay and alert thresholds for all hosts with overrides.</p>
             </div>
+            <div class="flex flex-wrap items-center gap-2 text-xs md:text-sm">
+                <span class="text-slate-400 mr-1">Quick status delay presets for selected hosts:</span>
+                <button type="button" onclick="setBulkStatusDelayPreset(300)" class="px-2 py-1 bg-slate-700 hover:bg-slate-600 text-slate-100 rounded border border-slate-600">5m</button>
+                <button type="button" onclick="setBulkStatusDelayPreset(900)" class="px-2 py-1 bg-slate-700 hover:bg-slate-600 text-slate-100 rounded border border-slate-600">15m</button>
+                <button type="button" onclick="setBulkStatusDelayPreset(3600)" class="px-2 py-1 bg-slate-700 hover:bg-slate-600 text-slate-100 rounded border border-slate-600">1h</button>
+                <button type="button" onclick="applyBulkStatusDelay()" class="px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded font-medium"><i class="fas fa-check-double mr-1"></i>Apply & Save</button>
+            </div>
         </div>
         <div class="overflow-x-auto">
             <table class="min-w-full text-xs md:text-sm text-slate-300">
                 <thead class="bg-slate-900/60">
                     <tr>
+                        <th class="px-3 py-2 text-center whitespace-nowrap">
+                            <input type="checkbox" id="host-overrides-select-all" class="rounded border-slate-600 bg-slate-900" onclick="toggleSelectAllOverrides(this)" />
+                        </th>
                         <th class="px-3 py-2 text-left whitespace-nowrap">Host IP</th>
                         <th class="px-3 py-2 text-left whitespace-nowrap">Host Name</th>
                         <th class="px-3 py-2 text-center whitespace-nowrap">Status Delay (s)</th>
@@ -157,7 +167,7 @@ $serverUrl = $protocol . $_SERVER['HTTP_HOST'];
                 </thead>
                 <tbody id="host-overrides-table-body">
                     <tr>
-                        <td colspan="8" class="px-3 py-4 text-center text-slate-500">Loading overrides...</td>
+                        <td colspan="9" class="px-3 py-4 text-center text-slate-500">Loading overrides...</td>
                     </tr>
                 </tbody>
             </table>
@@ -1477,12 +1487,15 @@ async function loadHostOverridesTable() {
         const overrides = await response.json();
 
         if (!overrides || overrides.length === 0) {
-            tableBody.innerHTML = '<tr><td colspan="8" class="px-3 py-4 text-center text-slate-500">No per-host overrides configured yet.</td></tr>';
+            tableBody.innerHTML = '<tr><td colspan="9" class="px-3 py-4 text-center text-slate-500">No per-host overrides configured yet.</td></tr>';
             return;
         }
 
         tableBody.innerHTML = overrides.map(o => `
             <tr data-host-ip="${o.host_ip}">
+                <td class="px-3 py-2 text-center">
+                    <input type="checkbox" name="row_select" class="rounded border-slate-600 bg-slate-900" />
+                </td>
                 <td class="px-3 py-2 whitespace-nowrap text-slate-300 text-xs md:text-sm">${o.host_ip}</td>
                 <td class="px-3 py-2 whitespace-nowrap">
                     <input type="text" name="host_name" value="${(o.host_name || o.host_ip).replace(/"/g, '&quot;')}" class="w-full px-2 py-1 bg-slate-900 border border-slate-700 rounded text-xs md:text-sm text-slate-100" />
@@ -1519,7 +1532,7 @@ async function loadHostOverridesTable() {
         `).join('');
     } catch (error) {
         console.error('Failed to load host overrides:', error);
-        tableBody.innerHTML = '<tr><td colspan="8" class="px-3 py-4 text-center text-red-400">Failed to load overrides</td></tr>';
+        tableBody.innerHTML = '<tr><td colspan="9" class="px-3 py-4 text-center text-red-400">Failed to load overrides</td></tr>';
     }
 }
 
@@ -1572,6 +1585,51 @@ async function bulkSaveHostOverride(hostIp) {
     } catch (error) {
         console.error('Failed to save host override:', error);
         notyf.error('Failed to save');
+    }
+}
+
+function getSelectedOverrideRows() {
+    const tableBody = document.getElementById('host-overrides-table-body');
+    if (!tableBody) return [];
+    return Array.from(tableBody.querySelectorAll('input[name="row_select"]:checked')).map(cb => cb.closest('tr'));
+}
+
+function toggleSelectAllOverrides(masterCheckbox) {
+    const tableBody = document.getElementById('host-overrides-table-body');
+    if (!tableBody) return;
+    const checkboxes = tableBody.querySelectorAll('input[name="row_select"]');
+    checkboxes.forEach(cb => {
+        cb.checked = masterCheckbox.checked;
+    });
+}
+
+function setBulkStatusDelayPreset(seconds) {
+    const rows = getSelectedOverrideRows();
+    if (!rows.length) {
+        notyf.error('Select at least one host to apply a preset');
+        return;
+    }
+
+    rows.forEach(row => {
+        const delayInput = row.querySelector('input[name="status_delay_seconds"]');
+        if (delayInput) {
+            delayInput.value = seconds;
+        }
+    });
+}
+
+async function applyBulkStatusDelay() {
+    const rows = getSelectedOverrideRows();
+    if (!rows.length) {
+        notyf.error('Select at least one host to apply changes');
+        return;
+    }
+
+    for (const row of rows) {
+        const hostIp = row.getAttribute('data-host-ip');
+        if (hostIp) {
+            await bulkSaveHostOverride(hostIp);
+        }
     }
 }
 
