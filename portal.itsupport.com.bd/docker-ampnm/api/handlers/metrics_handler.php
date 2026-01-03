@@ -343,29 +343,32 @@ switch ($action) {
                     memory_warning = ?, memory_critical = ?,
                     disk_warning = ?, disk_critical = ?,
                     gpu_warning = ?, gpu_critical = ?,
+                    status_delay_seconds = ?,
                     updated_at = NOW()
                     WHERE host_ip = ?";
             $pdo->prepare($sql)->execute([
                 $input['host_name'] ?? $hostIp,
-                $input['enabled'] ? 1 : 0,
+                !empty($input['enabled']) ? 1 : 0,
                 $input['cpu_warning'] ?? 80, $input['cpu_critical'] ?? 95,
                 $input['memory_warning'] ?? 80, $input['memory_critical'] ?? 95,
                 $input['disk_warning'] ?? 85, $input['disk_critical'] ?? 95,
                 $input['gpu_warning'] ?? 80, $input['gpu_critical'] ?? 95,
+                isset($input['status_delay_seconds']) ? (int)$input['status_delay_seconds'] : null,
                 $hostIp
             ]);
         } else {
             $sql = "INSERT INTO host_alert_overrides 
-                    (host_ip, host_name, enabled, cpu_warning, cpu_critical, memory_warning, memory_critical, disk_warning, disk_critical, gpu_warning, gpu_critical)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                    (host_ip, host_name, enabled, cpu_warning, cpu_critical, memory_warning, memory_critical, disk_warning, disk_critical, gpu_warning, gpu_critical, status_delay_seconds)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
             $pdo->prepare($sql)->execute([
                 $hostIp,
                 $input['host_name'] ?? $hostIp,
-                $input['enabled'] ? 1 : 0,
+                !empty($input['enabled']) ? 1 : 0,
                 $input['cpu_warning'] ?? 80, $input['cpu_critical'] ?? 95,
                 $input['memory_warning'] ?? 80, $input['memory_critical'] ?? 95,
                 $input['disk_warning'] ?? 85, $input['disk_critical'] ?? 95,
-                $input['gpu_warning'] ?? 80, $input['gpu_critical'] ?? 95
+                $input['gpu_warning'] ?? 80, $input['gpu_critical'] ?? 95,
+                isset($input['status_delay_seconds']) ? (int)$input['status_delay_seconds'] : null
             ]);
         }
         echo json_encode(['success' => true]);
@@ -381,6 +384,12 @@ switch ($action) {
         $stmt = $pdo->prepare("DELETE FROM host_alert_overrides WHERE host_ip = ?");
         $stmt->execute([$hostIp]);
         echo json_encode(['success' => true, 'deleted' => $stmt->rowCount()]);
+        break;
+        
+    case 'get_all_host_overrides':
+        $stmt = $pdo->query("SELECT * FROM host_alert_overrides ORDER BY host_ip");
+        $overrides = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        echo json_encode($overrides);
         break;
         
     default:

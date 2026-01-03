@@ -74,6 +74,30 @@ const DeviceMetricsPanel = {
     },
     
     /**
+     * Load per-host status delay (if configured)
+     */
+    async loadStatusDelay() {
+        // Default to 5 minutes
+        this.statusDelayMs = 300000;
+        
+        if (!this.currentDeviceIp) return;
+        
+        try {
+            const response = await fetch(`api.php?action=get_host_override&host_ip=${encodeURIComponent(this.currentDeviceIp)}`);
+            const data = await response.json();
+            
+            if (data && data.status_delay_seconds !== null && data.status_delay_seconds !== undefined) {
+                const delaySeconds = parseInt(data.status_delay_seconds, 10);
+                if (!isNaN(delaySeconds) && delaySeconds > 0) {
+                    this.statusDelayMs = delaySeconds * 1000;
+                }
+            }
+        } catch (error) {
+            console.error('Failed to load host status delay:', error);
+        }
+    },
+    
+    /**
      * Show metrics for a specific device
      */
     async show(deviceId, deviceIp, appendToElement) {
@@ -86,7 +110,8 @@ const DeviceMetricsPanel = {
             this.container.classList.remove('hidden');
         }
         
-        // Load metrics immediately
+        // Load per-host delay then metrics
+        await this.loadStatusDelay();
         await this.loadMetrics();
         
         // Start auto-refresh
@@ -140,7 +165,8 @@ const DeviceMetricsPanel = {
      */
     updateDisplay(data) {
         const statusEl = document.getElementById('metrics-status');
-        const isRecent = data.created_at && (Date.now() - new Date(data.created_at).getTime()) < 300000;
+        const maxAgeMs = this.statusDelayMs || 300000;
+        const isRecent = data.created_at && (Date.now() - new Date(data.created_at).getTime()) < maxAgeMs;
         
         if (isRecent) {
             statusEl.textContent = 'Live';
