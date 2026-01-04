@@ -201,6 +201,93 @@ switch ($action) {
         }
         break;
     
+    case 'save_map_view':
+        if ($user_role !== 'admin') { http_response_code(403); echo json_encode(['error' => 'Forbidden: Only admin can save map view.']); exit; }
+        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            $map_id = $input['map_id'] ?? null;
+            $center_x = $input['center_x'] ?? null;
+            $center_y = $input['center_y'] ?? null;
+            $zoom = $input['zoom'] ?? null;
+            $status_collapsed = !empty($input['status_legend_collapsed']) ? 1 : 0;
+            $connection_collapsed = !empty($input['connection_legend_collapsed']) ? 1 : 0;
+
+            if (!$map_id || $center_x === null || $center_y === null || $zoom === null) {
+                http_response_code(400);
+                echo json_encode(['error' => 'Map ID, center, and zoom are required']);
+                exit;
+            }
+
+            // Ensure table exists (MySQL)
+            $pdo->exec("CREATE TABLE IF NOT EXISTS admin_map_views (
+                id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                user_id INT UNSIGNED NOT NULL,
+                map_id INT UNSIGNED NOT NULL,
+                center_x DOUBLE NULL,
+                center_y DOUBLE NULL,
+                zoom DOUBLE NULL,
+                status_legend_collapsed TINYINT(1) NOT NULL DEFAULT 0,
+                connection_legend_collapsed TINYINT(1) NOT NULL DEFAULT 0,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY user_map_unique (user_id, map_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+            $sql = "INSERT INTO admin_map_views (user_id, map_id, center_x, center_y, zoom, status_legend_collapsed, connection_legend_collapsed)
+                    VALUES (:user_id, :map_id, :center_x, :center_y, :zoom, :status_collapsed, :connection_collapsed)
+                    ON DUPLICATE KEY UPDATE
+                        center_x = VALUES(center_x),
+                        center_y = VALUES(center_y),
+                        zoom = VALUES(zoom),
+                        status_legend_collapsed = VALUES(status_legend_collapsed),
+                        connection_legend_collapsed = VALUES(connection_legend_collapsed)";
+
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute([
+                ':user_id' => $current_user_id,
+                ':map_id' => $map_id,
+                ':center_x' => $center_x,
+                ':center_y' => $center_y,
+                ':zoom' => $zoom,
+                ':status_collapsed' => $status_collapsed,
+                ':connection_collapsed' => $connection_collapsed,
+            ]);
+
+            echo json_encode(['success' => true]);
+        }
+        break;
+
+    case 'get_map_view':
+        if ($user_role !== 'admin') { http_response_code(403); echo json_encode(['error' => 'Forbidden: Only admin can load map view.']); exit; }
+        if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+            $map_id = $_GET['map_id'] ?? null;
+            if (!$map_id) {
+                http_response_code(400);
+                echo json_encode(['error' => 'Map ID is required']);
+                exit;
+            }
+
+            // Ensure table exists (MySQL)
+            $pdo->exec("CREATE TABLE IF NOT EXISTS admin_map_views (
+                id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                user_id INT UNSIGNED NOT NULL,
+                map_id INT UNSIGNED NOT NULL,
+                center_x DOUBLE NULL,
+                center_y DOUBLE NULL,
+                zoom DOUBLE NULL,
+                status_legend_collapsed TINYINT(1) NOT NULL DEFAULT 0,
+                connection_legend_collapsed TINYINT(1) NOT NULL DEFAULT 0,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY user_map_unique (user_id, map_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+            $stmt = $pdo->prepare("SELECT center_x, center_y, zoom, status_legend_collapsed, connection_legend_collapsed
+                                   FROM admin_map_views
+                                   WHERE user_id = ? AND map_id = ?");
+            $stmt->execute([$current_user_id, $map_id]);
+            $view = $stmt->fetch(PDO::FETCH_ASSOC);
+            echo json_encode($view ?: (object)[]);
+        }
+        break;
+    
     case 'upload_map_background':
         if ($user_role !== 'admin') { http_response_code(403); echo json_encode(['error' => 'Forbidden: Only admin can upload map backgrounds.']); exit; }
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {

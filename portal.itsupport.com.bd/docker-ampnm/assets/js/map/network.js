@@ -28,8 +28,9 @@ MapApp.network = {
         
         // Event Handlers
         MapApp.state.network.on("dragEnd", async (params) => { 
-            if (window.userRole !== 'admin') return; // Only admin can drag
+            if (window.userRole !== 'admin') return; // Only admin can drag or persist view
             if (params.nodes.length > 0) { 
+                // Node drag: persist device position
                 const nodeId = params.nodes[0]; 
                 const position = MapApp.state.network.getPositions([nodeId])[nodeId]; 
                 try {
@@ -47,7 +48,28 @@ MapApp.network = {
                         window.notyf.error(error.message || 'Failed to save device position.');
                     }
                 }
-            } 
+            } else {
+                // Map pan without dragging a node: persist current view
+                try {
+                    if (MapApp.mapManager && typeof MapApp.mapManager.saveCurrentView === 'function') {
+                        await MapApp.mapManager.saveCurrentView();
+                    }
+                } catch (error) {
+                    console.error('Failed to save map view:', error);
+                }
+            }
+        });
+
+        // Zoom changes: persist current view for admins
+        MapApp.state.network.on("zoom", async () => {
+            if (window.userRole !== 'admin') return;
+            try {
+                if (MapApp.mapManager && typeof MapApp.mapManager.saveCurrentView === 'function') {
+                    await MapApp.mapManager.saveCurrentView();
+                }
+            } catch (error) {
+                console.error('Failed to save map view on zoom:', error);
+            }
         });
         
         // Single click: Show device info panel
