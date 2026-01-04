@@ -251,6 +251,18 @@ $deviceIconsLibrary = require_once 'includes/device_icons.php';
                         </div>
                     </div>
                 </div>
+
+                <div class="border-t border-slate-700 pt-4 mt-4 space-y-3">
+                    <h3 class="text-lg font-semibold text-white">My View Preferences</h3>
+                    <div>
+                        <label for="persistViewToggle" class="flex items-center text-sm font-medium text-slate-400 cursor-pointer">
+                            <input type="checkbox" id="persistViewToggle" class="h-4 w-4 rounded border-slate-500 bg-slate-700 text-cyan-600 focus:ring-cyan-500">
+                            <span class="ml-2">Automatically remember my map view (center, zoom & legends) on this device</span>
+                        </label>
+                        <p class="text-xs text-slate-500 mt-1">Turn this off if you always want to start from the default map view.</p>
+                    </div>
+                </div>
+
                 <div class="flex justify-between items-center mt-6">
                     <button type="button" id="resetMapBgBtn" class="px-4 py-2 bg-slate-700 text-slate-300 rounded-lg hover:bg-slate-600">Reset to Default</button>
                     <div>

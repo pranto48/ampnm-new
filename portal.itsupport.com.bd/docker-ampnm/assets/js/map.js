@@ -370,6 +370,16 @@ function initMap() {
                 document.getElementById('mapBgImageUrl').value = currentMap.background_image_url || '';
                 els.publicViewToggle.checked = currentMap.public_view_enabled;
                 MapApp.mapManager.updatePublicViewLink(currentMap.id, currentMap.public_view_enabled);
+
+                // Load per-admin view persistence preference from localStorage
+                try {
+                    const stored = localStorage.getItem('ampnm_view_persist');
+                    // Default to ON if not set
+                    els.persistViewToggle.checked = stored !== 'off';
+                } catch (e) {
+                    els.persistViewToggle.checked = true;
+                }
+
                 openModal('mapSettingsModal');
             }
         });
@@ -383,6 +393,15 @@ function initMap() {
 
         els.publicViewToggle.addEventListener('change', () => {
             MapApp.mapManager.updatePublicViewLink(state.currentMapId, els.publicViewToggle.checked);
+        });
+
+        // Persist per-admin view preference locally
+        els.persistViewToggle.addEventListener('change', () => {
+            try {
+                localStorage.setItem('ampnm_view_persist', els.persistViewToggle.checked ? 'on' : 'off');
+            } catch (e) {
+                console.warn('Failed to save view persistence preference:', e);
+            }
         });
 
         els.copyPublicLinkBtn.addEventListener('click', async () => {

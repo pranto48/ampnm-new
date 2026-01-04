@@ -412,6 +412,14 @@ MapApp.mapManager = {
         if (window.userRole !== 'admin') return;
         if (!MapApp.state.currentMapId || !MapApp.state.network) return;
 
+        // Honor per-admin preference stored locally
+        try {
+            const persist = localStorage.getItem('ampnm_view_persist');
+            if (persist === 'off') return;
+        } catch (e) {
+            // If localStorage is unavailable, fall back to persisting
+        }
+
         const position = MapApp.state.network.getViewPosition();
         const scale = MapApp.state.network.getScale();
 
