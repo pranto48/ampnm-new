@@ -51,6 +51,8 @@ MapApp.ui = {
             publicViewLink: document.getElementById('publicViewLink'),
             copyPublicLinkBtn: document.getElementById('copyPublicLinkBtn'),
             openPublicLinkBtn: document.getElementById('openPublicLinkBtn'),
+            // NEW per-admin view persistence toggle
+            persistViewToggle: document.getElementById('persistViewToggle'),
         };
     },
 
