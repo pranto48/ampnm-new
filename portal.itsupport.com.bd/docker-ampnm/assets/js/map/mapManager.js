@@ -431,6 +431,9 @@ MapApp.mapManager = {
                 console.warn('Failed to parse legend positions from saved view:', e);
             }
         }
+    },
+
+    // Copy an existing device on the current map (admin only)
     copyDevice: async (deviceId) => {
         if (window.userRole !== 'admin') {
             return;
