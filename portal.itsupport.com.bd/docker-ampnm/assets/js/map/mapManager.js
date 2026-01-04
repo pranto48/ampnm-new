@@ -352,101 +352,101 @@ MapApp.mapManager = {
     },
 
     // Load saved map center/zoom and legend visibility/positions for the current admin
-    loadMapView: async (mapId) => {
+    loadMapView: function (mapId) {
         if (window.userRole !== 'admin') return;
         if (!mapId || !MapApp.state.network) return;
 
-        let view;
-        try {
-            view = await MapApp.api.get('get_map_view', { map_id: mapId });
-        } catch (error) {
-            console.error('Failed to fetch saved map view:', error);
-            return;
-        }
+        var view;
+        return MapApp.api.get('get_map_view', { map_id: mapId })
+            .then(function (result) {
+                view = result;
+                if (!view || (!view.center_x && !view.center_y && !view.zoom)) {
+                    return;
+                }
 
-        if (!view || (!view.center_x && !view.center_y && !view.zoom)) {
-            return;
-        }
+                // Restore network view position and zoom
+                if (typeof view.center_x === 'number' && typeof view.center_y === 'number' && typeof view.zoom === 'number') {
+                    MapApp.state.network.moveTo({
+                        position: { x: view.center_x, y: view.center_y },
+                        scale: view.zoom
+                    });
+                }
 
-        // Restore network view position and zoom
-        if (typeof view.center_x === 'number' && typeof view.center_y === 'number' && typeof view.zoom === 'number') {
-            MapApp.state.network.moveTo({
-                position: { x: view.center_x, y: view.center_y },
-                scale: view.zoom,
-            });
-        }
+                // Restore legend collapsed state
+                var statusLegend = document.getElementById('status-legend-container');
+                var connectionLegend = document.getElementById('connection-legend');
+                var statusBar = document.getElementById('status-legend-bar');
+                var connectionBar = document.getElementById('connection-legend-bar');
 
-        // Restore legend collapsed state
-        const statusLegend = document.getElementById('status-legend-container');
-        const connectionLegend = document.getElementById('connection-legend');
-        const statusBar = document.getElementById('status-legend-bar');
-        const connectionBar = document.getElementById('connection-legend-bar');
+                var statusCollapsed = !!view.status_legend_collapsed;
+                var connectionCollapsed = !!view.connection_legend_collapsed;
 
-        const statusCollapsed = !!view.status_legend_collapsed;
-        const connectionCollapsed = !!view.connection_legend_collapsed;
-
-        if (statusLegend && statusBar) {
-            if (statusCollapsed) {
-                statusLegend.classList.add('legend-hidden');
-                statusBar.classList.remove('legend-bar-hidden');
-            } else {
-                statusLegend.classList.remove('legend-hidden');
-                statusBar.classList.add('legend-bar-hidden');
-            }
-        }
-
-        if (connectionLegend && connectionBar) {
-            if (connectionCollapsed) {
-                connectionLegend.classList.add('legend-hidden');
-                connectionBar.classList.remove('legend-bar-hidden');
-            } else {
-                connectionLegend.classList.remove('legend-hidden');
-                connectionBar.classList.add('legend-bar-hidden');
-            }
-        }
-
-        // Restore legend positions if available
-        if (view.legend_positions_json) {
-            try {
-                const positions = typeof view.legend_positions_json === 'string'
-                    ? JSON.parse(view.legend_positions_json)
-                    : view.legend_positions_json;
-                const wrapper = document.getElementById('network-map-wrapper');
-
-                if (wrapper && positions) {
-                    if (positions.status && statusLegend) {
-                        if (positions.status.left) statusLegend.style.left = positions.status.left;
-                        if (positions.status.top) statusLegend.style.top = positions.status.top;
-                        statusLegend.style.right = 'auto';
-                        statusLegend.style.bottom = 'auto';
-                    }
-                    if (positions.connection && connectionLegend) {
-                        if (positions.connection.left) connectionLegend.style.left = positions.connection.left;
-                        if (positions.connection.top) connectionLegend.style.top = positions.connection.top;
-                        connectionLegend.style.right = 'auto';
-                        connectionLegend.style.bottom = 'auto';
+                if (statusLegend && statusBar) {
+                    if (statusCollapsed) {
+                        statusLegend.classList.add('legend-hidden');
+                        statusBar.classList.remove('legend-bar-hidden');
+                    } else {
+                        statusLegend.classList.remove('legend-hidden');
+                        statusBar.classList.add('legend-bar-hidden');
                     }
                 }
-            } catch (e) {
-                console.warn('Failed to parse legend positions from saved view:', e);
-            }
-        }
+
+                if (connectionLegend && connectionBar) {
+                    if (connectionCollapsed) {
+                        connectionLegend.classList.add('legend-hidden');
+                        connectionBar.classList.remove('legend-bar-hidden');
+                    } else {
+                        connectionLegend.classList.remove('legend-hidden');
+                        connectionBar.classList.add('legend-bar-hidden');
+                    }
+                }
+
+                // Restore legend positions if available
+                if (view.legend_positions_json) {
+                    try {
+                        var positions = typeof view.legend_positions_json === 'string'
+                            ? JSON.parse(view.legend_positions_json)
+                            : view.legend_positions_json;
+                        var wrapper = document.getElementById('network-map-wrapper');
+
+                        if (wrapper && positions) {
+                            if (positions.status && statusLegend) {
+                                if (positions.status.left) statusLegend.style.left = positions.status.left;
+                                if (positions.status.top) statusLegend.style.top = positions.status.top;
+                                statusLegend.style.right = 'auto';
+                                statusLegend.style.bottom = 'auto';
+                            }
+                            if (positions.connection && connectionLegend) {
+                                if (positions.connection.left) connectionLegend.style.left = positions.connection.left;
+                                if (positions.connection.top) connectionLegend.style.top = positions.connection.top;
+                                connectionLegend.style.right = 'auto';
+                                connectionLegend.style.bottom = 'auto';
+                            }
+                        }
+                    } catch (e) {
+                        console.warn('Failed to parse legend positions from saved view:', e);
+                    }
+                }
+            })
+            .catch(function (error) {
+                console.error('Failed to fetch saved map view:', error);
+            });
     },
 
     // Copy an existing device on the current map (admin only)
-    copyDevice: async (deviceId) => {
+    copyDevice: function (deviceId) {
         if (window.userRole !== 'admin') {
             return;
         }
-        const nodeToCopy = MapApp.state.nodes.get(deviceId);
+        var nodeToCopy = MapApp.state.nodes.get(deviceId);
         if (!nodeToCopy) return;
 
-        const originalDevice = nodeToCopy.deviceData;
-        const position = MapApp.state.network.getPositions([deviceId])[deviceId];
+        var originalDevice = nodeToCopy.deviceData;
+        var position = MapApp.state.network.getPositions([deviceId])[deviceId];
 
-        const newDeviceData = {
-            ...originalDevice,
-            name: `Copy of ${originalDevice.name}`,
+        var newDeviceData = {
+            id: undefined,
+            name: 'Copy of ' + originalDevice.name,
             ip: '',
             x: position.x + 50,
             y: position.y + 50,
@@ -454,103 +454,127 @@ MapApp.mapManager = {
             status: 'unknown',
             last_seen: null,
             last_avg_time: null,
-            last_ttl: null,
+            last_ttl: null
         };
-        
-        delete newDeviceData.id;
-        delete newDeviceData.created_at;
-        delete newDeviceData.updated_at;
 
-        try {
-            const createdDevice = await MapApp.api.post('create_device', newDeviceData);
-            window.notyf.success(`Device "${originalDevice.name}" copied.`);
-            
-            const baseNode = {
-                id: createdDevice.id,
-                label: createdDevice.name,
-                title: MapApp.utils.buildNodeTitle(createdDevice),
-                x: createdDevice.x,
-                y: createdDevice.y,
-                font: { color: 'white', size: parseInt(createdDevice.name_text_size) || 14, multi: true },
-                deviceData: createdDevice
-            };
-
-            let visNode;
-            if (createdDevice.icon_url) {
-                visNode = { ...baseNode, shape: 'image', image: createdDevice.icon_url, size: (parseInt(createdDevice.icon_size) || 50) / 2, color: { border: MapApp.config.statusColorMap[createdDevice.status] || MapApp.config.statusColorMap.unknown, background: 'transparent' }, borderWidth: 3 };
-            } else if (createdDevice.type === 'box') {
-                visNode = { ...baseNode, shape: 'box', color: { background: 'rgba(49, 65, 85, 0.5)', border: '#475569' }, margin: 20, level: -1 };
-            } else {
-                const iconCode = MapApp.mapManager.getDeviceIconUnicode(createdDevice);
-                visNode = { ...baseNode, shape: 'icon', icon: { face: "'Font Awesome 6 Free'", weight: "900", code: iconCode, size: parseInt(createdDevice.icon_size) || 50, color: MapApp.config.statusColorMap[createdDevice.status] || MapApp.config.statusColorMap.unknown } };
+        // Copy remaining properties except identifiers / timestamps
+        for (var key in originalDevice) {
+            if (!originalDevice.hasOwnProperty(key)) continue;
+            if (key === 'id' || key === 'created_at' || key === 'updated_at') continue;
+            if (newDeviceData[key] === undefined) {
+                newDeviceData[key] = originalDevice[key];
             }
-            MapApp.state.nodes.add(visNode);
-        } catch (error) {
-            console.error("Failed to copy device:", error);
-            window.notyf.error("Could not copy the device.");
         }
+
+        return MapApp.api.post('create_device', newDeviceData)
+            .then(function (createdDevice) {
+                window.notyf.success('Device "' + originalDevice.name + '" copied.');
+
+                var baseNode = {
+                    id: createdDevice.id,
+                    label: createdDevice.name,
+                    title: MapApp.utils.buildNodeTitle(createdDevice),
+                    x: createdDevice.x,
+                    y: createdDevice.y,
+                    font: { color: 'white', size: parseInt(createdDevice.name_text_size, 10) || 14, multi: true },
+                    deviceData: createdDevice
+                };
+
+                var visNode;
+                if (createdDevice.icon_url) {
+                    visNode = Object.assign({}, baseNode, {
+                        shape: 'image',
+                        image: createdDevice.icon_url,
+                        size: (parseInt(createdDevice.icon_size, 10) || 50) / 2,
+                        color: { border: MapApp.config.statusColorMap[createdDevice.status] || MapApp.config.statusColorMap.unknown, background: 'transparent' },
+                        borderWidth: 3
+                    });
+                } else if (createdDevice.type === 'box') {
+                    visNode = Object.assign({}, baseNode, {
+                        shape: 'box',
+                        color: { background: 'rgba(49, 65, 85, 0.5)', border: '#475569' },
+                        margin: 20,
+                        level: -1
+                    });
+                } else {
+                    var iconCode = MapApp.mapManager.getDeviceIconUnicode(createdDevice);
+                    visNode = Object.assign({}, baseNode, {
+                        shape: 'icon',
+                        icon: {
+                            face: "'Font Awesome 6 Free'",
+                            weight: '900',
+                            code: iconCode,
+                            size: parseInt(createdDevice.icon_size, 10) || 50,
+                            color: MapApp.config.statusColorMap[createdDevice.status] || MapApp.config.statusColorMap.unknown
+                        }
+                    });
+                }
+                MapApp.state.nodes.add(visNode);
+            })
+            .catch(function (error) {
+                console.error('Failed to copy device:', error);
+                window.notyf.error('Could not copy the device.');
+            });
     },
 
-    saveCurrentView: async () => {
+    saveCurrentView: function () {
         if (window.userRole !== 'admin') return;
         if (!MapApp.state.currentMapId || !MapApp.state.network) return;
 
         // Honor per-admin preference stored locally
         try {
-            const persist = localStorage.getItem('ampnm_view_persist');
+            var persist = localStorage.getItem('ampnm_view_persist');
             if (persist === 'off') return;
         } catch (e) {
             // If localStorage is unavailable, fall back to persisting
         }
 
-        const position = MapApp.state.network.getViewPosition();
-        const scale = MapApp.state.network.getScale();
+        var position = MapApp.state.network.getViewPosition();
+        var scale = MapApp.state.network.getScale();
 
-        const statusLegend = document.getElementById('status-legend-container');
-        const connectionLegend = document.getElementById('connection-legend');
-        const wrapper = document.getElementById('network-map-wrapper');
+        var statusLegend = document.getElementById('status-legend-container');
+        var connectionLegend = document.getElementById('connection-legend');
+        var wrapper = document.getElementById('network-map-wrapper');
 
-        const statusCollapsed = statusLegend ? statusLegend.classList.contains('legend-hidden') : false;
-        const connectionCollapsed = connectionLegend ? connectionLegend.classList.contains('legend-hidden') : false;
+        var statusCollapsed = statusLegend ? statusLegend.classList.contains('legend-hidden') : false;
+        var connectionCollapsed = connectionLegend ? connectionLegend.classList.contains('legend-hidden') : false;
 
-        let legendPositions = null;
+        var legendPositions = null;
         if (wrapper) {
-            const wrapperRect = wrapper.getBoundingClientRect();
+            var wrapperRect = wrapper.getBoundingClientRect();
             legendPositions = {};
 
             if (statusLegend) {
-                const rect = statusLegend.getBoundingClientRect();
+                var rectStatus = statusLegend.getBoundingClientRect();
                 legendPositions.status = {
-                    left: (rect.left - wrapperRect.left) + 'px',
-                    top: (rect.top - wrapperRect.top) + 'px',
+                    left: (rectStatus.left - wrapperRect.left) + 'px',
+                    top: (rectStatus.top - wrapperRect.top) + 'px'
                 };
             }
 
             if (connectionLegend) {
-                const rect = connectionLegend.getBoundingClientRect();
+                var rectConn = connectionLegend.getBoundingClientRect();
                 legendPositions.connection = {
-                    left: (rect.left - wrapperRect.left) + 'px',
-                    top: (rect.top - wrapperRect.top) + 'px',
+                    left: (rectConn.left - wrapperRect.left) + 'px',
+                    top: (rectConn.top - wrapperRect.top) + 'px'
                 };
             }
         }
 
-        try {
-            await MapApp.api.post('save_map_view', {
-                map_id: MapApp.state.currentMapId,
-                center_x: position.x,
-                center_y: position.y,
-                zoom: scale,
-                status_legend_collapsed: statusCollapsed,
-                connection_legend_collapsed: connectionCollapsed,
-                legend_positions: legendPositions,
-            });
-        } catch (error) {
+        MapApp.api.post('save_map_view', {
+            map_id: MapApp.state.currentMapId,
+            center_x: position.x,
+            center_y: position.y,
+            zoom: scale,
+            status_legend_collapsed: statusCollapsed,
+            connection_legend_collapsed: connectionCollapsed,
+            legend_positions: legendPositions
+        }).catch(function (error) {
             console.error('Failed to persist map view preferences:', error);
-        }
+        });
     },
 
-    updatePublicViewLink: (mapId, isEnabled) => {
+    updatePublicViewLink: function (mapId, isEnabled) {
         if (isEnabled) {
             MapApp.ui.els.publicViewLink.value = MapApp.utils.buildPublicMapUrl(mapId);
             MapApp.ui.els.publicViewLinkContainer.classList.remove('hidden');
