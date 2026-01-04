@@ -340,6 +340,15 @@ MapApp.mapManager = {
         MapApp.deviceManager.setupAutoPing(deviceData);
         if (!MapApp.state.network) MapApp.network.initializeMap();
         if (!MapApp.state.animationFrameId) MapApp.ui.updateAndAnimateEdges();
+
+        // After map is fully initialized, restore per-admin view preferences
+        if (window.userRole === 'admin' && MapApp.mapManager.loadMapView) {
+            try {
+                await MapApp.mapManager.loadMapView(mapId);
+            } catch (error) {
+                console.error('Failed to load saved map view:', error);
+            }
+        }
     },
 
     copyDevice: async (deviceId) => {
@@ -396,6 +405,33 @@ MapApp.mapManager = {
         } catch (error) {
             console.error("Failed to copy device:", error);
             window.notyf.error("Could not copy the device.");
+        }
+    },
+
+    saveCurrentView: async () => {
+        if (window.userRole !== 'admin') return;
+        if (!MapApp.state.currentMapId || !MapApp.state.network) return;
+
+        const position = MapApp.state.network.getViewPosition();
+        const scale = MapApp.state.network.getScale();
+
+        const statusLegend = document.getElementById('status-legend-container');
+        const connectionLegend = document.getElementById('connection-legend');
+
+        const statusCollapsed = statusLegend ? statusLegend.classList.contains('legend-hidden') : false;
+        const connectionCollapsed = connectionLegend ? connectionLegend.classList.contains('legend-hidden') : false;
+
+        try {
+            await MapApp.api.post('save_map_view', {
+                map_id: MapApp.state.currentMapId,
+                center_x: position.x,
+                center_y: position.y,
+                zoom: scale,
+                status_legend_collapsed: statusCollapsed,
+                connection_legend_collapsed: connectionCollapsed,
+            });
+        } catch (error) {
+            console.error('Failed to persist map view preferences:', error);
         }
     },
 
