@@ -211,6 +211,10 @@ switch ($action) {
             $status_collapsed = !empty($input['status_legend_collapsed']) ? 1 : 0;
             $connection_collapsed = !empty($input['connection_legend_collapsed']) ? 1 : 0;
 
+            // Optional legend position data (status / connection legends)
+            $legend_positions = $input['legend_positions'] ?? null;
+            $legend_positions_json = $legend_positions ? json_encode($legend_positions) : null;
+
             if (!$map_id || $center_x === null || $center_y === null || $zoom === null) {
                 http_response_code(400);
                 echo json_encode(['error' => 'Map ID, center, and zoom are required']);
@@ -227,18 +231,28 @@ switch ($action) {
                 zoom DOUBLE NULL,
                 status_legend_collapsed TINYINT(1) NOT NULL DEFAULT 0,
                 connection_legend_collapsed TINYINT(1) NOT NULL DEFAULT 0,
+                legend_positions_json TEXT NULL,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 UNIQUE KEY user_map_unique (user_id, map_id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
-            $sql = "INSERT INTO admin_map_views (user_id, map_id, center_x, center_y, zoom, status_legend_collapsed, connection_legend_collapsed)
-                    VALUES (:user_id, :map_id, :center_x, :center_y, :zoom, :status_collapsed, :connection_collapsed)
+            // In case the table was created previously without the legend_positions_json column,
+            // attempt to add it; ignore any errors if it already exists or ALTER is unsupported.
+            try {
+                $pdo->exec("ALTER TABLE admin_map_views ADD COLUMN IF NOT EXISTS legend_positions_json TEXT NULL");
+            } catch (Exception $e) {
+                // Safe to ignore; view persistence will still work without positions on older MySQL versions
+            }
+
+            $sql = "INSERT INTO admin_map_views (user_id, map_id, center_x, center_y, zoom, status_legend_collapsed, connection_legend_collapsed, legend_positions_json)
+                    VALUES (:user_id, :map_id, :center_x, :center_y, :zoom, :status_collapsed, :connection_collapsed, :legend_positions_json)
                     ON DUPLICATE KEY UPDATE
                         center_x = VALUES(center_x),
                         center_y = VALUES(center_y),
                         zoom = VALUES(zoom),
                         status_legend_collapsed = VALUES(status_legend_collapsed),
-                        connection_legend_collapsed = VALUES(connection_legend_collapsed)";
+                        connection_legend_collapsed = VALUES(connection_legend_collapsed),
+                        legend_positions_json = VALUES(legend_positions_json)";
 
             $stmt = $pdo->prepare($sql);
             $stmt->execute([
@@ -249,6 +263,7 @@ switch ($action) {
                 ':zoom' => $zoom,
                 ':status_collapsed' => $status_collapsed,
                 ':connection_collapsed' => $connection_collapsed,
+                ':legend_positions_json' => $legend_positions_json,
             ]);
 
             echo json_encode(['success' => true]);
@@ -275,11 +290,20 @@ switch ($action) {
                 zoom DOUBLE NULL,
                 status_legend_collapsed TINYINT(1) NOT NULL DEFAULT 0,
                 connection_legend_collapsed TINYINT(1) NOT NULL DEFAULT 0,
+                legend_positions_json TEXT NULL,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 UNIQUE KEY user_map_unique (user_id, map_id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
-            $stmt = $pdo->prepare("SELECT center_x, center_y, zoom, status_legend_collapsed, connection_legend_collapsed
+            // In case the table was created previously without the legend_positions_json column,
+            // attempt to add it; ignore any errors if it already exists or ALTER is unsupported.
+            try {
+                $pdo->exec("ALTER TABLE admin_map_views ADD COLUMN IF NOT EXISTS legend_positions_json TEXT NULL");
+            } catch (Exception $e) {
+                // Safe to ignore; view persistence will still work without positions on older MySQL versions
+            }
+
+            $stmt = $pdo->prepare("SELECT center_x, center_y, zoom, status_legend_collapsed, connection_legend_collapsed, legend_positions_json
                                    FROM admin_map_views
                                    WHERE user_id = ? AND map_id = ?");
             $stmt->execute([$current_user_id, $map_id]);

@@ -351,7 +351,87 @@ MapApp.mapManager = {
         }
     },
 
-    copyDevice: async (deviceId) => {
+    // Load saved map center/zoom and legend visibility/positions for the current admin
+    loadMapView: async (mapId) => {
+        if (window.userRole !== 'admin') return;
+        if (!mapId || !MapApp.state.network) return;
+
+        let view;
+        try {
+            view = await MapApp.api.get('get_map_view', { map_id: mapId });
+        } catch (error) {
+            console.error('Failed to fetch saved map view:', error);
+            return;
+        }
+
+        if (!view || (!view.center_x && !view.center_y && !view.zoom)) {
+            return;
+        }
+
+        // Restore network view position and zoom
+        if (typeof view.center_x === 'number' && typeof view.center_y === 'number' && typeof view.zoom === 'number') {
+            MapApp.state.network.moveTo({
+                position: { x: view.center_x, y: view.center_y },
+                scale: view.zoom,
+            });
+        }
+
+        // Restore legend collapsed state
+        const statusLegend = document.getElementById('status-legend-container');
+        const connectionLegend = document.getElementById('connection-legend');
+        const statusBar = document.getElementById('status-legend-bar');
+        const connectionBar = document.getElementById('connection-legend-bar');
+
+        const statusCollapsed = !!view.status_legend_collapsed;
+        const connectionCollapsed = !!view.connection_legend_collapsed;
+
+        if (statusLegend && statusBar) {
+            if (statusCollapsed) {
+                statusLegend.classList.add('legend-hidden');
+                statusBar.classList.remove('legend-bar-hidden');
+            } else {
+                statusLegend.classList.remove('legend-hidden');
+                statusBar.classList.add('legend-bar-hidden');
+            }
+        }
+
+        if (connectionLegend && connectionBar) {
+            if (connectionCollapsed) {
+                connectionLegend.classList.add('legend-hidden');
+                connectionBar.classList.remove('legend-bar-hidden');
+            } else {
+                connectionLegend.classList.remove('legend-hidden');
+                connectionBar.classList.add('legend-bar-hidden');
+            }
+        }
+
+        // Restore legend positions if available
+        if (view.legend_positions_json) {
+            try {
+                const positions = typeof view.legend_positions_json === 'string'
+                    ? JSON.parse(view.legend_positions_json)
+                    : view.legend_positions_json;
+                const wrapper = document.getElementById('network-map-wrapper');
+
+                if (wrapper && positions) {
+                    if (positions.status && statusLegend) {
+                        if (positions.status.left) statusLegend.style.left = positions.status.left;
+                        if (positions.status.top) statusLegend.style.top = positions.status.top;
+                        statusLegend.style.right = 'auto';
+                        statusLegend.style.bottom = 'auto';
+                    }
+                    if (positions.connection && connectionLegend) {
+                        if (positions.connection.left) connectionLegend.style.left = positions.connection.left;
+                        if (positions.connection.top) connectionLegend.style.top = positions.connection.top;
+                        connectionLegend.style.right = 'auto';
+                        connectionLegend.style.bottom = 'auto';
+                    }
+                }
+            } catch (e) {
+                console.warn('Failed to parse legend positions from saved view:', e);
+            }
+        }
+    },
         if (window.userRole !== 'admin') {
             return;
         }
@@ -425,9 +505,32 @@ MapApp.mapManager = {
 
         const statusLegend = document.getElementById('status-legend-container');
         const connectionLegend = document.getElementById('connection-legend');
+        const wrapper = document.getElementById('network-map-wrapper');
 
         const statusCollapsed = statusLegend ? statusLegend.classList.contains('legend-hidden') : false;
         const connectionCollapsed = connectionLegend ? connectionLegend.classList.contains('legend-hidden') : false;
+
+        let legendPositions = null;
+        if (wrapper) {
+            const wrapperRect = wrapper.getBoundingClientRect();
+            legendPositions = {};
+
+            if (statusLegend) {
+                const rect = statusLegend.getBoundingClientRect();
+                legendPositions.status = {
+                    left: (rect.left - wrapperRect.left) + 'px',
+                    top: (rect.top - wrapperRect.top) + 'px',
+                };
+            }
+
+            if (connectionLegend) {
+                const rect = connectionLegend.getBoundingClientRect();
+                legendPositions.connection = {
+                    left: (rect.left - wrapperRect.left) + 'px',
+                    top: (rect.top - wrapperRect.top) + 'px',
+                };
+            }
+        }
 
         try {
             await MapApp.api.post('save_map_view', {
@@ -437,6 +540,7 @@ MapApp.mapManager = {
                 zoom: scale,
                 status_legend_collapsed: statusCollapsed,
                 connection_legend_collapsed: connectionCollapsed,
+                legend_positions: legendPositions,
             });
         } catch (error) {
             console.error('Failed to persist map view preferences:', error);
