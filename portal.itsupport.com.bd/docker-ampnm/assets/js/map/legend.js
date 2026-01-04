@@ -180,8 +180,15 @@ MapApp.legend = {
         });
     },
     
-    // Save positions to localStorage
+    // Save positions to storage / backend
     savePositions: function() {
+        // For admins, delegate to backend persistence so positions are synced per-admin
+        if (window.userRole === 'admin' && MapApp.mapManager && typeof MapApp.mapManager.saveCurrentView === 'function') {
+            MapApp.mapManager.saveCurrentView();
+            return;
+        }
+
+        // Viewers fall back to localStorage so legends can still be moved around
         const positions = {};
         document.querySelectorAll('.legend-container').forEach(legend => {
             const legendType = legend.dataset.legend;
@@ -202,6 +209,13 @@ MapApp.legend = {
     
     // Save collapsed/expanded state
     saveState: function(legendType, state) {
+        // For admins, persist via backend along with positions/center/zoom
+        if (window.userRole === 'admin' && MapApp.mapManager && typeof MapApp.mapManager.saveCurrentView === 'function') {
+            MapApp.mapManager.saveCurrentView();
+            return;
+        }
+
+        // Viewers fall back to localStorage
         try {
             const stored = JSON.parse(localStorage.getItem(this.storageKey) || '{}');
             stored.states = stored.states || {};
@@ -212,8 +226,14 @@ MapApp.legend = {
         }
     },
     
-    // Load positions and states from localStorage
+    // Load positions and states from storage
     loadPositions: function() {
+        // Admin legend state/position is loaded from backend through MapApp.mapManager.loadMapView,
+        // so we only use localStorage fallback for non-admin viewers.
+        if (window.userRole === 'admin') {
+            return;
+        }
+
         try {
             const stored = JSON.parse(localStorage.getItem(this.storageKey) || '{}');
             
@@ -247,7 +267,7 @@ MapApp.legend = {
         }
     }
 };
-
+ 
 // Initialize when DOM is ready
 document.addEventListener('DOMContentLoaded', function() {
     // Delay initialization to ensure map wrapper exists
