@@ -431,7 +431,7 @@ MapApp.mapManager = {
                 console.warn('Failed to parse legend positions from saved view:', e);
             }
         }
-    },
+    copyDevice: async (deviceId) => {
         if (window.userRole !== 'admin') {
             return;
         }
