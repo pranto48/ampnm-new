@@ -1,4 +1,65 @@
+window.MapApp = window.MapApp || {};
+
+// Ensure we always have a sane MapApp.config, even if config.js failed to load
+MapApp.ensureConfig = () => {
+    const defaults = {
+        API_URL: 'api.php',
+        REFRESH_INTERVAL_SECONDS: 1,
+        iconMap: {
+            server: '\uf233', router: '\uf4d7', switch: '\uf796', printer: '\uf02f', nas: '\uf0a0',
+            camera: '\uf030', other: '\uf108', firewall: '\uf3ed', ipphone: '\uf87d',
+            punchdevice: '\uf2c2', 'wifi-router': '\uf1eb', 'radio-tower': '\uf519',
+            rack: '\uf1b3', laptop: '\uf109', tablet: '\uf3fa', mobile: '\uf3cd',
+            cloud: '\uf0c2', database: '\uf1c0', box: '\uf49e'
+        },
+        statusColorMap: {
+            online: '#22c55e',
+            warning: '#f59e0b',
+            critical: '#ef4444',
+            offline: '#64748b',
+            unknown: '#94a3b8',
+        },
+        edgeColorMap: {
+            cat5: '#a78bfa',
+            fiber: '#f97316',
+            wifi: '#38bdf8',
+            radio: '#84cc16',
+            lan: '#60a5fa',
+            'logical-tunneling': '#c084fc',
+        },
+        edgeLabelMap: {
+            cat5: '🔌 CAT5',
+            fiber: '💡 Fiber',
+            wifi: '📡 WiFi',
+            radio: '📻 Radio',
+            lan: '🌐 LAN',
+            'logical-tunneling': '🔒 Tunnel',
+        },
+    };
+
+    // If config.js never ran, create a fresh config object
+    if (!MapApp.config) {
+        MapApp.config = { ...defaults };
+        return;
+    }
+
+    // Otherwise, fill in any missing pieces without clobbering existing values
+    const cfg = MapApp.config;
+    if (typeof cfg.API_URL !== 'string') cfg.API_URL = defaults.API_URL;
+    if (!cfg.REFRESH_INTERVAL_SECONDS || isNaN(cfg.REFRESH_INTERVAL_SECONDS)) {
+        cfg.REFRESH_INTERVAL_SECONDS = defaults.REFRESH_INTERVAL_SECONDS;
+    }
+
+    cfg.iconMap = { ...defaults.iconMap, ...(cfg.iconMap || {}) };
+    cfg.statusColorMap = { ...defaults.statusColorMap, ...(cfg.statusColorMap || {}) };
+    cfg.edgeColorMap = { ...defaults.edgeColorMap, ...(cfg.edgeColorMap || {}) };
+    cfg.edgeLabelMap = { ...defaults.edgeLabelMap, ...(cfg.edgeLabelMap || {}) };
+};
+
 function initMap() {
+    // Make sure configuration is always present before anything else uses it
+    MapApp.ensureConfig();
+
     // Initialize all modules
     MapApp.ui.cacheElements();
 

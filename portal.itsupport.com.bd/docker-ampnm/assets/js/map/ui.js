@@ -59,9 +59,24 @@ MapApp.ui = {
     populateLegend: () => {
         const legendContainer = document.getElementById('status-legend');
         if (!legendContainer) return;
+
+        // Provide safe defaults so legends always render, even if config.js failed to load
+        const defaultStatusColors = {
+            online: '#22c55e',
+            warning: '#f59e0b',
+            critical: '#ef4444',
+            offline: '#64748b',
+            unknown: '#94a3b8',
+        };
+
+        const cfg = (window.MapApp && MapApp.config) ? MapApp.config : {};
+        const colorMap = (cfg.statusColorMap && typeof cfg.statusColorMap === 'object')
+            ? cfg.statusColorMap
+            : defaultStatusColors;
+
         const statusOrder = ['online', 'warning', 'critical', 'offline', 'unknown'];
         legendContainer.innerHTML = statusOrder.map(status => {
-            const color = MapApp.config.statusColorMap[status];
+            const color = colorMap[status] || defaultStatusColors[status] || '#64748b';
             const label = status.charAt(0).toUpperCase() + status.slice(1);
             return `<div class="legend-item"><div class="legend-dot" style="background-color: ${color};"></div><span>${label}</span></div>`;
         }).join('');
