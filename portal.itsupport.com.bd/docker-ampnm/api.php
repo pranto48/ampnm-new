@@ -108,7 +108,9 @@ try {
         'get_maps', 'get_devices', 'get_edges', 'get_dashboard_data', 'get_ping_history',
         'get_status_logs', 'get_device_details', 'get_device_uptime',
         'get_smtp_settings', 'get_all_devices_for_subscriptions', 'get_device_subscriptions',
-        'health', 'get_current_license_info', // Added for license management
+        'health', 'get_current_license_info',
+        // Host metrics viewing
+        'get_latest_metrics', 'get_metrics_history', 'get_all_hosts',
     ];
 
     // Define specific POST actions that 'viewer' role can perform
@@ -150,6 +152,12 @@ try {
     $logActions = ['get_status_logs'];
     $notificationActions = ['get_smtp_settings', 'save_smtp_settings', 'get_device_subscriptions', 'save_device_subscription', 'delete_device_subscription', 'get_all_devices_for_subscriptions'];
     $licenseActions = ['get_current_license_info', 'update_app_license_key', 'force_license_recheck']; // Added license actions
+    $metricsActions = [
+        'get_latest_metrics', 'get_metrics_history', 'get_all_hosts',
+        'get_agent_tokens', 'create_agent_token', 'delete_agent_token', 'toggle_agent_token',
+        'get_all_host_overrides', 'save_host_override', 'delete_host_override',
+        'export_host_overrides', 'import_host_overrides',
+    ];
 
     if (in_array($action, $pingActions)) {
         require __DIR__ . '/api/handlers/ping_handler.php';
@@ -167,6 +175,8 @@ try {
         require __DIR__ . '/api/handlers/notification_handler.php';
     } elseif (in_array($action, $licenseActions)) { // Handle new license actions
         require __DIR__ . '/api/handlers/license_handler.php';
+    } elseif (in_array($action, $metricsActions)) {
+        require __DIR__ . '/api/handlers/metrics_handler.php';
     } elseif ($action === 'health') {
         echo json_encode(['status' => 'ok', 'timestamp' => date('c')]);
     } else {
