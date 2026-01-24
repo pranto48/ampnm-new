@@ -61,6 +61,19 @@ $current_page = basename($_SERVER['PHP_SELF']); // Get current page filename
                             </div>
                         </div>
 
+                        <div class="nav-group">
+                            <button type="button" class="nav-link nav-group-toggle">
+                                <span class="flex items-center"><i class="fas fa-heartbeat fa-fw mr-2"></i>Monitoring</span>
+                                <i class="fas fa-chevron-down nav-group-caret"></i>
+                            </button>
+                            <div class="nav-group-items">
+                                <a href="host_metrics.php" class="nav-link nav-sublink"><i class="fas fa-microchip fa-fw mr-2"></i>Host Metrics</a>
+                                <a href="download-agent.php" class="nav-link nav-sublink"><i class="fas fa-download fa-fw mr-2"></i>Download Windows Agent</a>
+                                <a href="documentation.php#windows-agent" class="nav-link nav-sublink"><i class="fas fa-book-open fa-fw mr-2"></i>Windows Agent Guide</a>
+                                <a href="api/agent/windows-metrics/health" class="nav-link nav-sublink" target="_blank" rel="noreferrer"><i class="fas fa-plug-circle-check fa-fw mr-2"></i>Agent API Health</a>
+                            </div>
+                        </div>
+
                         <?php if ($user_role === 'admin'): ?>
                             <div class="nav-group">
                                 <button type="button" class="nav-link nav-group-toggle">
