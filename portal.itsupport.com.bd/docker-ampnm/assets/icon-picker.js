@@ -30,6 +30,25 @@
             this.typeSelect = document.querySelector(this.config.typeSelectSelector);
             this.container = document.querySelector(this.config.containerSelector);
             this.subchoiceInput = document.querySelector('#subchoice');
+
+            // Optional preview block (create/edit pages)
+            this.previewIcon = document.getElementById('selectedIconPreviewIcon');
+            this.previewTitle = document.getElementById('selectedIconPreviewTitle');
+            this.previewSubtitle = document.getElementById('selectedIconPreviewSubtitle');
+        },
+
+        updateSelectionPreview: function(deviceType, subchoice) {
+            if (!this.previewIcon || !this.previewTitle || !this.previewSubtitle || !window.deviceIconsLibrary) {
+                return;
+            }
+            const typeData = window.deviceIconsLibrary[deviceType];
+            const icons = typeData?.icons || [];
+            const idx = parseInt(subchoice, 10) || 0;
+            const variant = icons[idx] || icons[0] || { icon: 'fa-circle', label: 'Default' };
+
+            this.previewIcon.className = `fas ${variant.icon}`;
+            this.previewTitle.textContent = typeData?.label ? typeData.label : deviceType;
+            this.previewSubtitle.textContent = variant.label ? `Variant: ${variant.label}` : `Variant #${idx}`;
         },
 
         bindEvents: function() {
@@ -111,6 +130,7 @@
             this.container.innerHTML = html;
             const currentSubchoice = this.subchoiceInput ? (parseInt(this.subchoiceInput.value, 10) || 0) : 0;
             this.highlightCurrentSelection(deviceType, currentSubchoice);
+            this.updateSelectionPreview(deviceType, currentSubchoice);
         },
 
         updateCategory: function() {
@@ -120,6 +140,7 @@
                 this.subchoiceInput.value = '0';
             }
             this.renderPicker(newType);
+            this.updateSelectionPreview(newType, 0);
         },
 
         switchCategory: function(category) {
@@ -130,6 +151,7 @@
                     this.subchoiceInput.value = '0';
                 }
                 this.renderPicker(category);
+                this.updateSelectionPreview(category, 0);
             }
         },
 
@@ -142,6 +164,7 @@
                 this.subchoiceInput.value = String(parseInt(subchoice, 10) || 0);
             }
             this.highlightCurrentSelection(deviceType, subchoice);
+            this.updateSelectionPreview(deviceType, subchoice);
         },
 
         highlightCurrentSelection: function(deviceType, subchoice = 0) {
