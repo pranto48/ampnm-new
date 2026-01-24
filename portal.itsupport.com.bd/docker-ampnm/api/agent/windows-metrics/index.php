@@ -1,6 +1,7 @@
 <?php
 // REST-style endpoint for Windows monitoring agent
 // - POST   /api/agent/windows-metrics
+// - GET    /api/agent/windows-metrics/health
 // - GET    /api/agent/windows-metrics/recent?limit=50
 // - GET    /api/agent/windows-metrics/<HOSTNAME>/latest
 
@@ -28,6 +29,18 @@ try {
     }
 
     $pdo = getDbConnection();
+
+    if ($method === 'GET' && $suffix === 'health') {
+        // Lightweight check: confirm DB connectivity.
+        $stmt = $pdo->query('SELECT 1');
+        $stmt->fetch();
+
+        echo json_encode([
+            'status' => 'ok',
+            'timestamp' => date('c'),
+        ]);
+        exit;
+    }
 
     if ($method === 'GET' && $suffix === 'recent') {
         $limit = (int)($_GET['limit'] ?? 50);
