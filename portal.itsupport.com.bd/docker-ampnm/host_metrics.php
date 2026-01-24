@@ -17,7 +17,13 @@ $serverUrl = $protocol . $_SERVER['HTTP_HOST'] . ($basePath === '/' ? '' : $base
             <h1 class="text-2xl font-bold text-white mb-1">
                 <i class="fas fa-microchip text-cyan-400 mr-2"></i>Host Metrics
             </h1>
-            <p class="text-slate-400 text-sm">Monitor CPU, Memory, Disk, Network and GPU from Windows agents</p>
+            <div class="flex flex-wrap items-center gap-3">
+                <p class="text-slate-400 text-sm">Monitor CPU, Memory, Disk, Network and GPU from Windows agents</p>
+                <span id="agent-health-badge" class="inline-flex items-center gap-2 px-2.5 py-1 rounded-full text-xs font-medium border border-slate-600 bg-slate-800/60 text-slate-300">
+                    <span id="agent-health-dot" class="w-2 h-2 rounded-full bg-slate-500"></span>
+                    <span id="agent-health-text">Agent API: Checking…</span>
+                </span>
+            </div>
         </div>
         
         <?php if ($user_role === 'admin'): ?>
@@ -835,6 +841,32 @@ function isHostOnline(host) {
     if (!host.created_at) return false;
     const maxAgeMs = getHostStatusDelaySeconds(host);
     return (Date.now() - new Date(host.created_at).getTime()) < maxAgeMs;
+}
+
+// Quick dev verification: ensure the agent REST endpoint is reachable.
+const agentHealthUrl = <?= json_encode($serverUrl . '/api/agent/windows-metrics/health') ?>;
+async function checkAgentApiHealth() {
+    const badge = document.getElementById('agent-health-badge');
+    const dot = document.getElementById('agent-health-dot');
+    const text = document.getElementById('agent-health-text');
+    if (!badge || !dot || !text) return;
+
+    try {
+        const res = await fetch(agentHealthUrl, { cache: 'no-store' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json().catch(() => ({}));
+        if (data && data.status === 'ok') {
+            dot.className = 'w-2 h-2 rounded-full bg-green-500';
+            text.textContent = 'Agent API: OK';
+            badge.className = 'inline-flex items-center gap-2 px-2.5 py-1 rounded-full text-xs font-medium border border-green-500/30 bg-green-500/10 text-green-300';
+        } else {
+            throw new Error('Bad payload');
+        }
+    } catch (e) {
+        dot.className = 'w-2 h-2 rounded-full bg-red-500';
+        text.textContent = 'Agent API: Down';
+        badge.className = 'inline-flex items-center gap-2 px-2.5 py-1 rounded-full text-xs font-medium border border-red-500/30 bg-red-500/10 text-red-300';
+    }
 }
 
 async function loadHosts() {
@@ -1763,11 +1795,13 @@ async function importHostOverridesCsv(input) {
 }
 
 loadHosts();
+checkAgentApiHealth();
 updateNotificationToggle();
 updateSoundToggle();
 initHostOverridesFilters();
 loadHostOverridesTable();
 setInterval(loadHosts, 10000);
+setInterval(checkAgentApiHealth, 15000);
 </script>
 
 <?php require_once 'footer.php'; ?>
