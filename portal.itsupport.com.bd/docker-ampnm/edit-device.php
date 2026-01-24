@@ -39,6 +39,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $monitor_method = $_POST['monitor_method'] ?? ($device['monitor_method'] ?? 'ping');
     $check_port = $_POST['check_port'] ?? null;
     $type = $_POST['type'] ?? 'server';
+    $subchoice = $_POST['subchoice'] ?? ($device['subchoice'] ?? 0);
     $description = trim($_POST['description'] ?? '');
     $map_id = $_POST['map_id'] ?? null;
     $ping_interval = $_POST['ping_interval'] ?? null;
@@ -56,10 +57,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $message = '<div class="bg-red-500/20 border border-red-500/30 text-red-300 text-sm rounded-lg p-3 text-center">Device name is required.</div>';
     } else {
         try {
-            $sql = "UPDATE devices SET name = ?, ip = ?, check_port = ?, monitor_method = ?, type = ?, description = ?, map_id = ?, ping_interval = ?, icon_size = ?, name_text_size = ?, icon_url = ?, warning_latency_threshold = ?, warning_packetloss_threshold = ?, critical_latency_threshold = ?, critical_packetloss_threshold = ?, show_live_ping = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?";
+            $sql = "UPDATE devices SET name = ?, ip = ?, check_port = ?, monitor_method = ?, type = ?, subchoice = ?, description = ?, map_id = ?, ping_interval = ?, icon_size = ?, name_text_size = ?, icon_url = ?, warning_latency_threshold = ?, warning_packetloss_threshold = ?, critical_latency_threshold = ?, critical_packetloss_threshold = ?, show_live_ping = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?";
             $stmt = $pdo->prepare($sql);
             $stmt->execute([
-                $name, empty($ip) ? null : $ip, empty($check_port) ? null : $check_port, $monitor_method, $type, empty($description) ? null : $description, empty($map_id) ? null : $map_id,
+                $name,
+                empty($ip) ? null : $ip,
+                empty($check_port) ? null : $check_port,
+                $monitor_method,
+                $type,
+                is_numeric($subchoice) ? (int)$subchoice : 0,
+                empty($description) ? null : $description,
+                empty($map_id) ? null : $map_id,
                 empty($ping_interval) ? null : $ping_interval, $icon_size, $name_text_size, empty($icon_url) ? null : $icon_url,
                 empty($warning_latency_threshold) ? null : $warning_latency_threshold, empty($warning_packetloss_threshold) ? null : $warning_packetloss_threshold,
                 empty($critical_latency_threshold) ? null : $critical_latency_threshold, empty($critical_packetloss_threshold) ? null : $critical_packetloss_threshold,
@@ -117,6 +125,9 @@ $form_data = $device ?? [];
                         }
                         ?>
                     </select>
+
+                    <!-- Icon variant index (0-based) selected from the icon picker -->
+                    <input type="hidden" id="subchoice" name="subchoice" value="<?= htmlspecialchars($form_data['subchoice'] ?? 0) ?>">
                     
                     <!-- Enhanced Icon Picker Container -->
                     <link rel="stylesheet" href="assets/icon-picker.css">

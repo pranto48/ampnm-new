@@ -257,4 +257,13 @@ $deviceIconsLibrary = require_once 'includes/device_icons.php';
     window.deviceIconsLibrary = <?= json_encode($deviceIconsLibrary) ?>;
 </script>
 
+<!-- Ensure map refreshes after returning from edit page (bfcache) -->
+<script>
+    window.addEventListener('pageshow', function (e) {
+        if (e && e.persisted) {
+            window.location.reload();
+        }
+    });
+</script>
+
 <?php include 'footer.php'; ?>

@@ -29,6 +29,7 @@
         cacheElements: function() {
             this.typeSelect = document.querySelector(this.config.typeSelectSelector);
             this.container = document.querySelector(this.config.containerSelector);
+            this.subchoiceInput = document.querySelector('#subchoice');
         },
 
         bindEvents: function() {
@@ -108,11 +109,16 @@
             html += '</div>';
 
             this.container.innerHTML = html;
-            this.highlightCurrentSelection(deviceType);
+            const currentSubchoice = this.subchoiceInput ? (parseInt(this.subchoiceInput.value, 10) || 0) : 0;
+            this.highlightCurrentSelection(deviceType, currentSubchoice);
         },
 
         updateCategory: function() {
             const newType = this.typeSelect?.value || 'server';
+            // When switching type manually, default to the first variant
+            if (this.subchoiceInput) {
+                this.subchoiceInput.value = '0';
+            }
             this.renderPicker(newType);
         },
 
@@ -120,6 +126,9 @@
             if (this.typeSelect) {
                 this.typeSelect.value = category;
                 this.typeSelect.dispatchEvent(new Event('change'));
+                if (this.subchoiceInput) {
+                    this.subchoiceInput.value = '0';
+                }
                 this.renderPicker(category);
             }
         },
@@ -128,6 +137,9 @@
             if (this.typeSelect) {
                 this.typeSelect.value = deviceType;
                 this.typeSelect.dispatchEvent(new Event('change'));
+            }
+            if (this.subchoiceInput) {
+                this.subchoiceInput.value = String(parseInt(subchoice, 10) || 0);
             }
             this.highlightCurrentSelection(deviceType, subchoice);
         },
