@@ -19,8 +19,6 @@ $current_page = basename($_SERVER['PHP_SELF']); // Get current page filename
     <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/notyf@3/notyf.min.css">
     <link rel="stylesheet" href="assets/css/style.css">
-    <link rel="stylesheet" href="assets/css/device-metrics.css">
-    <link rel="stylesheet" href="assets/css/device-info-panel.css">
 </head>
 <body class="bg-slate-900 text-slate-300 min-h-screen">
     <nav class="bg-slate-800/50 backdrop-blur-lg shadow-lg sticky top-0 z-50">
@@ -60,7 +58,6 @@ $current_page = basename($_SERVER['PHP_SELF']); // Get current page filename
                             <div class="nav-group-items">
                                 <a href="map.php" class="nav-link nav-sublink"><i class="fas fa-project-diagram fa-fw mr-2"></i>Map</a>
                                 <a href="network_graphs.php" class="nav-link nav-sublink"><i class="fas fa-chart-line fa-fw mr-2"></i>Network Graphs</a>
-                                <a href="host_metrics.php" class="nav-link nav-sublink"><i class="fas fa-microchip fa-fw mr-2"></i>Host Metrics</a>
                             </div>
                         </div>
 
@@ -75,7 +72,6 @@ $current_page = basename($_SERVER['PHP_SELF']); // Get current page filename
                                     <a href="history.php" class="nav-link nav-sublink"><i class="fas fa-history fa-fw mr-2"></i>History</a>
                                     <a href="status_logs.php" class="nav-link nav-sublink"><i class="fas fa-clipboard-list fa-fw mr-2"></i>Status Logs</a>
                                     <a href="email_notifications.php" class="nav-link nav-sublink"><i class="fas fa-envelope fa-fw mr-2"></i>Email Notifications</a>
-                                    <a href="email_logs.php" class="nav-link nav-sublink"><i class="fas fa-inbox fa-fw mr-2"></i>Email Logs</a>
                                     <a href="code_updates.php" class="nav-link nav-sublink"><i class="fas fa-cloud-download-alt fa-fw mr-2"></i>Code Updates</a>
                                     <a href="users.php" class="nav-link nav-sublink"><i class="fas fa-users-cog fa-fw mr-2"></i>Users</a>
                                     <a href="license_management.php" class="nav-link nav-sublink"><i class="fas fa-id-card fa-fw mr-2"></i>License</a>

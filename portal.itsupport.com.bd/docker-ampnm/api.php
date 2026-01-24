@@ -11,13 +11,6 @@ try {
 
     // --- Public Actions (NO AUTH REQUIRED) ---
     // These actions must be handled and exit BEFORE any authentication checks.
-    
-    // Handle Windows Agent metrics submission (token-authenticated, no session)
-    if ($action === 'submit_metrics') {
-        require __DIR__ . '/api/handlers/metrics_handler.php';
-        exit;
-    }
-    
     if ($action === 'get_public_map_data') {
         $map_id = $_GET['map_id'] ?? null;
         if (!$map_id) { http_response_code(400); echo json_encode(['error' => 'Map ID is required.']); exit; }
@@ -28,19 +21,9 @@ try {
 
         if (!$map) { http_response_code(404); echo json_encode(['error' => 'Map not found or not enabled for public view.']); exit; }
 
-        // Check if subchoice column exists
-        $columnCheck = $pdo->query("SHOW COLUMNS FROM devices LIKE 'subchoice'");
-        $hasSubchoice = $columnCheck->rowCount() > 0;
-        
-        $subchoiceField = $hasSubchoice ? "d.subchoice," : "0 as subchoice,";
-
-        $iconClassCheck = $pdo->query("SHOW COLUMNS FROM devices LIKE 'icon_class'");
-        $hasIconClass = $iconClassCheck->rowCount() > 0;
-        $iconClassField = $hasIconClass ? "d.icon_class," : "NULL as icon_class,";
-        
         $stmt_devices = $pdo->prepare("
             SELECT 
-                d.id, d.name, d.ip, d.check_port, d.type, {$subchoiceField} {$iconClassField} d.description, d.x, d.y, 
+                d.id, d.name, d.ip, d.check_port, d.type, d.subchoice, d.description, d.x, d.y, 
                 d.ping_interval, d.icon_size, d.name_text_size, d.icon_url, 
                 d.warning_latency_threshold, d.warning_packetloss_threshold, 
                 d.critical_latency_threshold, d.critical_packetloss_threshold, 
@@ -125,8 +108,7 @@ try {
         'get_maps', 'get_devices', 'get_edges', 'get_dashboard_data', 'get_ping_history',
         'get_status_logs', 'get_device_details', 'get_device_uptime',
         'get_smtp_settings', 'get_all_devices_for_subscriptions', 'get_device_subscriptions',
-        'health', 'get_current_license_info',
-        'get_latest_metrics', 'get_metrics_history', 'get_all_hosts', // Host metrics viewing
+        'health', 'get_current_license_info', // Added for license management
     ];
 
     // Define specific POST actions that 'viewer' role can perform
@@ -162,14 +144,12 @@ try {
     // Group actions by handler
     $pingActions = ['manual_ping', 'scan_network', 'ping_device', 'get_ping_history'];
     $deviceActions = ['get_devices', 'create_device', 'update_device', 'delete_device', 'copy_device', 'get_device_details', 'check_device', 'check_all_devices_globally', 'get_device_uptime', 'upload_device_icon', 'import_devices', 'update_device_status_by_ip']; // ping_all_devices removed
-    $mapActions = ['get_maps', 'create_map', 'delete_map', 'get_edges', 'create_edge', 'update_edge', 'delete_edge', 'import_map', 'update_map', 'upload_map_background', 'get_map_view', 'save_map_view'];
+    $mapActions = ['get_maps', 'create_map', 'delete_map', 'get_edges', 'create_edge', 'update_edge', 'delete_edge', 'import_map', 'update_map', 'upload_map_background'];
     $dashboardActions = ['get_dashboard_data'];
     $userActions = ['get_users', 'create_user', 'delete_user', 'update_user_role', 'update_user_password'];
     $logActions = ['get_status_logs'];
-    $notificationActions = ['get_smtp_settings', 'save_smtp_settings', 'test_smtp', 'get_device_subscriptions', 'save_device_subscription', 'delete_device_subscription', 'get_all_devices_for_subscriptions'];
-    $licenseActions = ['get_current_license_info', 'update_app_license_key', 'force_license_recheck'];
-    $metricsActions = ['get_latest_metrics', 'get_metrics_history', 'get_all_hosts', 'get_agent_tokens', 'create_agent_token', 'delete_agent_token', 'toggle_agent_token', 'get_all_host_overrides', 'save_host_override', 'delete_host_override', 'export_host_overrides', 'import_host_overrides'];
-    $emailLogsActions = ['get_email_stats', 'get_email_logs', 'get_email_queue', 'retry_email', 'cancel_email', 'process_email_queue', 'cleanup_email_logs', 'get_system_settings', 'save_system_settings', 'get_alert_logs', 'cleanup_alert_logs'];
+    $notificationActions = ['get_smtp_settings', 'save_smtp_settings', 'get_device_subscriptions', 'save_device_subscription', 'delete_device_subscription', 'get_all_devices_for_subscriptions'];
+    $licenseActions = ['get_current_license_info', 'update_app_license_key', 'force_license_recheck']; // Added license actions
 
     if (in_array($action, $pingActions)) {
         require __DIR__ . '/api/handlers/ping_handler.php';
@@ -185,12 +165,8 @@ try {
         require __DIR__ . '/api/handlers/log_handler.php';
     } elseif (in_array($action, $notificationActions)) {
         require __DIR__ . '/api/handlers/notification_handler.php';
-    } elseif (in_array($action, $licenseActions)) {
+    } elseif (in_array($action, $licenseActions)) { // Handle new license actions
         require __DIR__ . '/api/handlers/license_handler.php';
-    } elseif (in_array($action, $metricsActions)) {
-        require __DIR__ . '/api/handlers/metrics_handler.php';
-    } elseif (in_array($action, $emailLogsActions)) {
-        require __DIR__ . '/api/handlers/email_logs_handler.php';
     } elseif ($action === 'health') {
         echo json_encode(['status' => 'ok', 'timestamp' => date('c')]);
     } else {

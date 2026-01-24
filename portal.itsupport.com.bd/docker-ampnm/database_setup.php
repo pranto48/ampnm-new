@@ -140,7 +140,6 @@ try {
             `status` ENUM('online', 'offline', 'unknown', 'warning', 'critical') DEFAULT 'unknown',
             `last_seen` TIMESTAMP NULL,
             `type` VARCHAR(50) NOT NULL DEFAULT 'server',
-            `subchoice` TINYINT UNSIGNED NOT NULL DEFAULT 0,
             `description` TEXT,
             `enabled` BOOLEAN DEFAULT TRUE,
             `x` DECIMAL(10, 4) NULL,
@@ -242,139 +241,6 @@ try {
             `setting_value` TEXT NULL,
             `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;",
-        
-        // NEW TABLE FOR HOST METRICS (Windows Agent Monitoring)
-        "CREATE TABLE IF NOT EXISTS `host_metrics` (
-            `id` INT(10) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-            `device_id` INT(6) UNSIGNED NULL,
-            `host_name` VARCHAR(255) NOT NULL,
-            `host_ip` VARCHAR(45) NOT NULL,
-            `cpu_percent` DECIMAL(5,2) NULL,
-            `memory_percent` DECIMAL(5,2) NULL,
-            `memory_total_gb` DECIMAL(10,2) NULL,
-            `memory_free_gb` DECIMAL(10,2) NULL,
-            `disk_percent` DECIMAL(5,2) NULL,
-            `disk_total_gb` DECIMAL(10,2) NULL,
-            `disk_free_gb` DECIMAL(10,2) NULL,
-            `network_in_mbps` DECIMAL(10,2) NULL,
-            `network_out_mbps` DECIMAL(10,2) NULL,
-            `gpu_percent` DECIMAL(5,2) NULL,
-            `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (`device_id`) REFERENCES `devices`(`id`) ON DELETE SET NULL,
-            INDEX `idx_host_metrics_device` (`device_id`),
-            INDEX `idx_host_metrics_ip` (`host_ip`),
-            INDEX `idx_host_metrics_created` (`created_at` DESC)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;",
-        
-        // TABLE FOR AGENT TOKENS (authentication for Windows agents)
-        "CREATE TABLE IF NOT EXISTS `agent_tokens` (
-            `id` INT(6) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-            `token` VARCHAR(64) NOT NULL UNIQUE,
-            `name` VARCHAR(100) NOT NULL,
-            `enabled` BOOLEAN DEFAULT TRUE,
-            `last_used_at` TIMESTAMP NULL,
-            `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;",
-        
-        // TABLE FOR PER-HOST ALERT OVERRIDES
-        "CREATE TABLE IF NOT EXISTS `host_alert_overrides` (
-            `id` INT(6) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-            `host_ip` VARCHAR(45) NOT NULL UNIQUE,
-            `host_name` VARCHAR(255) NULL,
-            `enabled` BOOLEAN DEFAULT TRUE,
-            `cpu_warning` INT(3) DEFAULT 80,
-            `cpu_critical` INT(3) DEFAULT 95,
-            `memory_warning` INT(3) DEFAULT 80,
-            `memory_critical` INT(3) DEFAULT 95,
-            `disk_warning` INT(3) DEFAULT 85,
-            `disk_critical` INT(3) DEFAULT 95,
-            `gpu_warning` INT(3) DEFAULT 80,
-            `gpu_critical` INT(3) DEFAULT 95,
-            `status_delay_seconds` INT(11) NULL,
-            `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            INDEX `idx_host_alert_overrides_ip` (`host_ip`)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;",
-        
-        // TABLE FOR ALERT HISTORY LOG
-        "CREATE TABLE IF NOT EXISTS `host_alert_log` (
-            `id` INT(11) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-            `host_ip` VARCHAR(45) NOT NULL,
-            `host_name` VARCHAR(255) NULL,
-            `alert_type` VARCHAR(20) NOT NULL,
-            `alert_level` VARCHAR(20) NOT NULL,
-            `value` DECIMAL(5,2) NOT NULL,
-            `threshold` DECIMAL(5,2) NOT NULL,
-            `sent_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            INDEX `idx_host_alert_log_ip` (`host_ip`),
-            INDEX `idx_host_alert_log_sent` (`sent_at` DESC)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;",
-        
-        // TABLE FOR GLOBAL ALERT SETTINGS
-        "CREATE TABLE IF NOT EXISTS `host_alert_settings` (
-            `id` INT(6) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-            `user_id` INT(6) UNSIGNED NOT NULL,
-            `cpu_warning_threshold` INT(3) DEFAULT 80,
-            `cpu_critical_threshold` INT(3) DEFAULT 95,
-            `memory_warning_threshold` INT(3) DEFAULT 80,
-            `memory_critical_threshold` INT(3) DEFAULT 95,
-            `disk_warning_threshold` INT(3) DEFAULT 85,
-            `disk_critical_threshold` INT(3) DEFAULT 95,
-            `enabled` BOOLEAN DEFAULT TRUE,
-            `cooldown_minutes` INT(5) DEFAULT 30,
-            `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            UNIQUE KEY `unique_user` (`user_id`)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;",
-        
-        // TABLE FOR EMAIL QUEUE (with retry logic)
-        "CREATE TABLE IF NOT EXISTS `email_queue` (
-            `id` INT(11) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-            `recipient` VARCHAR(255) NOT NULL,
-            `subject` VARCHAR(500) NOT NULL,
-            `body` LONGTEXT NOT NULL,
-            `priority` ENUM('low', 'normal', 'high') DEFAULT 'normal',
-            `status` ENUM('pending', 'processing', 'sent', 'failed', 'cancelled') DEFAULT 'pending',
-            `attempts` INT(3) DEFAULT 0,
-            `max_attempts` INT(3) DEFAULT 3,
-            `error_message` TEXT NULL,
-            `scheduled_at` TIMESTAMP NULL,
-            `sent_at` TIMESTAMP NULL,
-            `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            INDEX `idx_email_queue_status` (`status`),
-            INDEX `idx_email_queue_priority` (`priority`),
-            INDEX `idx_email_queue_scheduled` (`scheduled_at`),
-            INDEX `idx_email_queue_created` (`created_at` DESC)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;",
-        
-        // TABLE FOR EMAIL DELIVERY LOGS
-        "CREATE TABLE IF NOT EXISTS `email_logs` (
-            `id` INT(11) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-            `queue_id` INT(11) UNSIGNED NULL,
-            `recipient` VARCHAR(255) NOT NULL,
-            `subject` VARCHAR(500) NOT NULL,
-            `status` ENUM('sent', 'failed', 'bounced') NOT NULL,
-            `smtp_response` TEXT NULL,
-            `error_message` TEXT NULL,
-            `attempts` INT(3) DEFAULT 1,
-            `sent_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            INDEX `idx_email_logs_recipient` (`recipient`),
-            INDEX `idx_email_logs_status` (`status`),
-            INDEX `idx_email_logs_sent` (`sent_at` DESC),
-            FOREIGN KEY (`queue_id`) REFERENCES `email_queue`(`id`) ON DELETE SET NULL
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;",
-        
-        // TABLE FOR SYSTEM SETTINGS (log retention, etc.)
-        "CREATE TABLE IF NOT EXISTS `system_settings` (
-            `id` INT(6) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-            `setting_key` VARCHAR(100) NOT NULL UNIQUE,
-            `setting_value` TEXT NULL,
-            `setting_type` ENUM('string', 'number', 'boolean', 'json') DEFAULT 'string',
-            `description` VARCHAR(500) NULL,
-            `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;"
     ];
 
@@ -453,11 +319,6 @@ try {
         $pdo->exec("ALTER TABLE `devices` ADD COLUMN `router_api_port` INT(5) NULL AFTER `router_api_password`;");
         message("Upgraded 'devices' table: added 'router_api_port' column.");
     }
-    // NEW MIGRATION: Add subchoice column to devices table for icon variants
-    if (!columnExists($pdo, $dbname, 'devices', 'subchoice')) {
-        $pdo->exec("ALTER TABLE `devices` ADD COLUMN `subchoice` TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER `type`;");
-        message("Upgraded 'devices' table: added 'subchoice' column for icon variants.");
-    }
 
 
     // Step 5: Check if the admin user has any maps
@@ -510,25 +371,6 @@ try {
             $stmt = $pdo->prepare("INSERT INTO `app_settings` (setting_key, setting_value) VALUES (?, ?)");
             $stmt->execute([$key, $value]);
             message("Initialized app setting: '$key'.");
-        }
-    }
-    
-    // Initialize system_settings for log retention and email queue
-    $system_settings = [
-        ['log_retention_days', '7', 'number', 'Number of days to keep email logs (default: 7)'],
-        ['alert_log_retention_days', '30', 'number', 'Number of days to keep alert logs (default: 30)'],
-        ['email_queue_max_retries', '3', 'number', 'Maximum retry attempts for failed emails'],
-        ['email_queue_retry_delay', '5', 'number', 'Minutes to wait before retrying failed emails'],
-        ['email_queue_enabled', 'true', 'boolean', 'Enable email queue system (vs direct sending)']
-    ];
-    
-    foreach ($system_settings as $setting) {
-        $stmt = $pdo->prepare("SELECT setting_value FROM `system_settings` WHERE setting_key = ?");
-        $stmt->execute([$setting[0]]);
-        if (!$stmt->fetch()) {
-            $stmt = $pdo->prepare("INSERT INTO `system_settings` (setting_key, setting_value, setting_type, description) VALUES (?, ?, ?, ?)");
-            $stmt->execute($setting);
-            message("Initialized system setting: '{$setting[0]}'.");
         }
     }
 
