@@ -184,6 +184,11 @@ $serverUrl = $protocol . $_SERVER['HTTP_HOST'] . ($basePath === '/' ? '' : $base
     <?php endif; ?>
 </div>
 
+<script>
+    // Expose admin state to the page JS (used to render admin-only controls in host cards)
+    const IS_ADMIN = <?= json_encode($user_role === 'admin') ?>;
+</script>
+
 <!-- Installation Guide Modal -->
 <div id="install-guide-modal" class="fixed inset-0 z-50 hidden flex items-start justify-center bg-black/70 p-4 pt-6">
     <div class="bg-slate-800 rounded-xl border border-slate-700 w-full max-w-5xl h-[95vh] overflow-hidden shadow-xl">
@@ -744,6 +749,11 @@ function createHostCard(host) {
     const isOnline = isHostOnline(host);
     const statusClass = isOnline ? 'bg-green-500' : 'bg-red-500';
     const statusText = isOnline ? 'Online' : 'Offline';
+
+    const idSafe = (host.host_ip || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const statusDelaySeconds = (host.status_delay_seconds !== null && host.status_delay_seconds !== undefined && String(host.status_delay_seconds) !== '')
+        ? parseInt(host.status_delay_seconds, 10)
+        : 300;
     
     const firstSeen = host.first_seen_at ? new Date(host.first_seen_at) : null;
     const firstSeenDisplay = firstSeen ? getTimeAgo(firstSeen) : 'Unknown';
@@ -772,6 +782,36 @@ function createHostCard(host) {
                     <span class="px-2 py-1 text-xs rounded ${isRecent ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}">${statusText}</span>
                 </div>
             </div>
+
+            ${IS_ADMIN ? `
+                <div class="mb-3">
+                    <div class="flex items-center justify-between gap-2 bg-slate-900/40 rounded-lg border border-slate-700 px-2.5 py-2">
+                        <div class="flex items-center gap-2">
+                            <span class="text-slate-400 text-xs"><i class="fas fa-stopwatch mr-1"></i>Status Delay</span>
+                            <span id="status-delay-label-${idSafe}" class="text-slate-300 text-xs">${formatStatusDelayLabel(statusDelaySeconds)}</span>
+                        </div>
+                        <div class="flex items-center gap-2" onclick="event.stopPropagation();">
+                            <input
+                                id="status-delay-input-${idSafe}"
+                                type="number"
+                                min="30"
+                                max="86400"
+                                value="${statusDelaySeconds}"
+                                class="w-24 px-2 py-1 bg-slate-900 border border-slate-600 rounded text-xs text-slate-100 text-center"
+                                title="Seconds before host is considered stale"
+                                onkeydown="if(event.key==='Enter'){ event.preventDefault(); quickSaveStatusDelay('${host.host_ip}', '${host.host_name || host.host_ip}', this); }"
+                            />
+                            <button
+                                class="px-2.5 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded text-xs font-medium"
+                                onclick="event.stopPropagation(); quickSaveStatusDelay('${host.host_ip}', '${host.host_name || host.host_ip}', document.getElementById('status-delay-input-${idSafe}'))"
+                                title="Save status delay override">
+                                <i class="fas fa-save mr-1"></i>Save
+                            </button>
+                        </div>
+                    </div>
+                    <p class="text-[11px] text-slate-500 mt-1">Controls how long a host can go without reporting before it shows as Offline.</p>
+                </div>
+            ` : ''}
             
             <div class="grid grid-cols-2 gap-3 text-sm cursor-pointer" onclick="selectHost('${host.host_ip}', '${host.host_name || host.host_ip}')">
                 <div class="bg-slate-900/50 rounded-lg p-2">
@@ -818,6 +858,67 @@ function createHostCard(host) {
             </div>
         </div>
     `;
+}
+
+async function quickSaveStatusDelay(hostIp, hostName, inputEl) {
+    try {
+        if (!inputEl) return;
+        const raw = (inputEl.value || '').trim();
+        const seconds = parseInt(raw, 10);
+        if (isNaN(seconds) || seconds < 30 || seconds > 86400) {
+            notyf.error('Status Delay must be between 30 and 86400 seconds');
+            return;
+        }
+
+        inputEl.disabled = true;
+        await saveHostStatusDelay(hostIp, hostName, seconds);
+
+        const idSafe = (hostIp || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+        const labelEl = document.getElementById(`status-delay-label-${idSafe}`);
+        if (labelEl) labelEl.textContent = formatStatusDelayLabel(seconds);
+
+        notyf.success('Status Delay saved');
+        // Keep UI consistent everywhere (host cards + admin overrides table)
+        if (typeof loadHosts === 'function') loadHosts();
+        if (typeof loadHostOverridesTable === 'function') loadHostOverridesTable();
+    } catch (e) {
+        console.error('Failed to save status delay:', e);
+        notyf.error('Failed to save Status Delay');
+    } finally {
+        if (inputEl) inputEl.disabled = false;
+    }
+}
+
+async function saveHostStatusDelay(hostIp, hostName, statusDelaySeconds) {
+    // Preserve existing thresholds by reading current override first
+    const existingRes = await fetch(`api.php?action=get_host_override&host_ip=${encodeURIComponent(hostIp)}`);
+    const existing = await existingRes.json().catch(() => ({}));
+
+    const payload = {
+        host_ip: hostIp,
+        host_name: hostName,
+        enabled: 1,
+        cpu_warning: existing.cpu_warning ?? 80,
+        cpu_critical: existing.cpu_critical ?? 95,
+        memory_warning: existing.memory_warning ?? 80,
+        memory_critical: existing.memory_critical ?? 95,
+        disk_warning: existing.disk_warning ?? 85,
+        disk_critical: existing.disk_critical ?? 95,
+        gpu_warning: existing.gpu_warning ?? 80,
+        gpu_critical: existing.gpu_critical ?? 95,
+        status_delay_seconds: statusDelaySeconds
+    };
+
+    const res = await fetch('api.php?action=save_host_override', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.success === false) {
+        throw new Error((data && data.error) ? data.error : `HTTP ${res.status}`);
+    }
+    return data;
 }
 
 function getTimeAgo(date) {
