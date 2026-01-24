@@ -581,6 +581,18 @@ const notyf = new Notyf({
         }
     ]
 });
+
+// Optional deep-link: host_metrics.php?modal=tokens
+window.addEventListener('load', () => {
+    try {
+        const modal = new URLSearchParams(window.location.search).get('modal');
+        if (modal === 'tokens') {
+            openTokenModal();
+        }
+    } catch (e) {
+        // ignore
+    }
+});
 let selectedHostIp = null;
 let charts = {};
 let autoRefreshInterval = null;
