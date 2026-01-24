@@ -91,7 +91,14 @@ $form_data = $device ?? [];
     <div class="container mx-auto px-4 py-8">
         <div class="flex items-center justify-between mb-6">
             <h1 class="text-3xl font-bold text-white">Edit Device: <?= htmlspecialchars($form_data['name'] ?? 'N/A') ?></h1>
-            <a href="devices.php" class="px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-500"><i class="fas fa-arrow-left mr-2"></i>Back to Devices</a>
+            <div class="flex items-center gap-3">
+                <?php if (!empty($form_data['map_id'])): ?>
+                    <a href="map.php?map_id=<?= urlencode($form_data['map_id']) ?>" class="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600">
+                        <i class="fas fa-map mr-2"></i>Return to Map
+                    </a>
+                <?php endif; ?>
+                <a href="devices.php" class="px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-500"><i class="fas fa-arrow-left mr-2"></i>Back to Devices</a>
+            </div>
         </div>
 
         <div class="bg-slate-800 border border-slate-700 rounded-lg shadow-xl p-6 max-w-4xl mx-auto">
@@ -128,6 +135,15 @@ $form_data = $device ?? [];
 
                     <!-- Icon variant index (0-based) selected from the icon picker -->
                     <input type="hidden" id="subchoice" name="subchoice" value="<?= htmlspecialchars($form_data['subchoice'] ?? 0) ?>">
+
+                    <!-- Current selection preview (kept in sync by assets/icon-picker.js) -->
+                    <div id="selectedIconPreview" class="flex items-center gap-3 mb-4 px-3 py-2 rounded-lg bg-slate-900 border border-slate-700">
+                        <i id="selectedIconPreviewIcon" class="fas fa-circle text-slate-200"></i>
+                        <div class="leading-tight">
+                            <div id="selectedIconPreviewTitle" class="text-sm font-semibold text-white"></div>
+                            <div id="selectedIconPreviewSubtitle" class="text-xs text-slate-400"></div>
+                        </div>
+                    </div>
                     
                     <!-- Enhanced Icon Picker Container -->
                     <link rel="stylesheet" href="assets/icon-picker.css">
