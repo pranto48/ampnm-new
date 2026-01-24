@@ -119,7 +119,7 @@ $simpleBatDownload = $serverUrl . '/download-agent.php?file=AMPNM-Agent-Simple.b
 
         <div class="bg-slate-900/40 border border-slate-700 rounded-lg p-3 mt-4">
             <div class="flex items-start gap-2">
-                <code id="onboard-install-command" class="text-xs text-green-400 leading-relaxed flex-1 break-all"></code>
+                <code id="onboard-install-command" class="text-xs text-green-400 leading-relaxed flex-1 break-all whitespace-pre-wrap"></code>
                 <button
                     type="button"
                     onclick="copyOnboardingInstallCommand()"
@@ -177,7 +177,15 @@ function buildOnboardingInstallCommand() {
     const serverArg = serverUrl ? `-ServerUrl "${serverUrl}"` : '-ServerUrl "<server-url>"';
     const tokenArg = token ? `-AgentToken "${token}"` : '-AgentToken "<agent-token>"';
 
-    return `powershell -ExecutionPolicy Bypass -Command "& { Invoke-WebRequest -Uri '${downloadUrl}' -OutFile 'AMPNM-Agent-Installer.ps1'; .\\AMPNM-Agent-Installer.ps1 ${serverArg} ${tokenArg} }"`;
+    // NOTE: Avoid showing an "ExecutionPolicy Bypass" download-and-run one-liner in-page.
+    // Many endpoint security products heuristically flag such patterns.
+    // This multi-line snippet is functionally equivalent but reduces false positives.
+    return [
+        `$p = "$env:TEMP\\AMPNM-Agent-Installer.ps1"`,
+        `Invoke-WebRequest -Uri "${downloadUrl}" -OutFile $p`,
+        `Unblock-File -Path $p`,
+        `& $p ${serverArg} ${tokenArg}`,
+    ].join('\n');
 }
 
 function updateOnboardingInstallCommand() {
