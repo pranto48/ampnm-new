@@ -140,6 +140,7 @@ try {
             `status` ENUM('online', 'offline', 'unknown', 'warning', 'critical') DEFAULT 'unknown',
             `last_seen` TIMESTAMP NULL,
             `type` VARCHAR(50) NOT NULL DEFAULT 'server',
+            `subchoice` TINYINT UNSIGNED NOT NULL DEFAULT 0,
             `description` TEXT,
             `enabled` BOOLEAN DEFAULT TRUE,
             `x` DECIMAL(10, 4) NULL,
@@ -289,6 +290,11 @@ try {
     if (!columnExists($pdo, $dbname, 'devices', 'icon_url')) {
         $pdo->exec("ALTER TABLE `devices` ADD COLUMN `icon_url` VARCHAR(255) NULL AFTER `name_text_size`;");
         message("Upgraded 'devices' table: added 'icon_url' column for custom icons.");
+    }
+    // NEW MIGRATION: Add subchoice column for icon variants
+    if (!columnExists($pdo, $dbname, 'devices', 'subchoice')) {
+        $pdo->exec("ALTER TABLE `devices` ADD COLUMN `subchoice` TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER `type`;");
+        message("Migrated 'devices' table: added 'subchoice' column for icon variants.");
     }
     if (!columnExists($pdo, $dbname, 'maps', 'background_color')) {
         $pdo->exec("ALTER TABLE `maps` ADD COLUMN `background_color` VARCHAR(20) NULL AFTER `description`;");

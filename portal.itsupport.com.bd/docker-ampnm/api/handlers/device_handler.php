@@ -511,7 +511,32 @@ switch ($action) {
             $id = $input['id'] ?? null;
             $updates = $input['updates'] ?? [];
             if (!$id || empty($updates)) { http_response_code(400); echo json_encode(['error' => 'Device ID and updates are required']); exit; }
+
+            // Detect schema capability (fresh/old DB might miss devices.subchoice)
+            $hasSubchoice = false;
+            try {
+                $dbName = $pdo->query('SELECT DATABASE()')->fetchColumn();
+                if ($dbName) {
+                    $stmtCol = $pdo->prepare('SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ?');
+                    $stmtCol->execute([$dbName, 'devices', 'subchoice']);
+                    $hasSubchoice = ((int)$stmtCol->fetchColumn()) > 0;
+                }
+            } catch (Throwable $e) {
+                $hasSubchoice = false;
+            }
+
+            if (!$hasSubchoice && array_key_exists('subchoice', $updates)) {
+                http_response_code(400);
+                echo json_encode([
+                    'error' => "Database schema missing required column devices.subchoice. Fix by running: ALTER TABLE devices ADD COLUMN subchoice TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER type; (or run docker-ampnm/FIX_SUBCHOICE_COMPLETE.sql)"
+                ]);
+                exit;
+            }
+
             $allowed_fields = ['name', 'ip', 'check_port', 'monitor_method', 'type', 'subchoice', 'description', 'x', 'y', 'map_id', 'ping_interval', 'icon_size', 'name_text_size', 'icon_url', 'router_api_username', 'router_api_password', 'router_api_port', 'warning_latency_threshold', 'warning_packetloss_threshold', 'critical_latency_threshold', 'critical_packetloss_threshold', 'show_live_ping', 'status', 'last_seen', 'last_avg_time', 'last_ttl']; // Added status and last_seen
+            if (!$hasSubchoice) {
+                $allowed_fields = array_values(array_diff($allowed_fields, ['subchoice']));
+            }
             $fields = []; $params = [];
             foreach ($updates as $key => $value) {
                 if (in_array($key, $allowed_fields)) {

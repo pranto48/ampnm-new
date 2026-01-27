@@ -7,6 +7,18 @@ $current_user_id = $_SESSION['user_id'];
 $message = '';
 $monitor_method = 'ping';
 
+function dbColumnExists(PDO $pdo, string $table, string $column): bool {
+    try {
+        $dbName = $pdo->query('SELECT DATABASE()')->fetchColumn();
+        if (!$dbName) return false;
+        $stmt = $pdo->prepare('SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ?');
+        $stmt->execute([$dbName, $table, $column]);
+        return (int)$stmt->fetchColumn() > 0;
+    } catch (Throwable $e) {
+        return false;
+    }
+}
+
 // Load device icons library
 $deviceIconsLibrary = require_once 'includes/device_icons.php';
 
@@ -42,24 +54,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($max_devices > 0 && $current_devices >= $max_devices) {
                 $message = '<div class="bg-red-500/20 border border-red-500/30 text-red-300 text-sm rounded-lg p-3 text-center">License limit reached. You cannot add more than ' . $max_devices . ' devices.</div>';
             } else {
-                $sql = "INSERT INTO devices (user_id, name, ip, check_port, monitor_method, type, subchoice, description, map_id, x, y, ping_interval, icon_size, name_text_size, icon_url, warning_latency_threshold, warning_packetloss_threshold, critical_latency_threshold, critical_packetloss_threshold, show_live_ping) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-                $stmt = $pdo->prepare($sql);
-                $stmt->execute([
-                    $current_user_id,
-                    $name,
-                    empty($ip) ? null : $ip,
-                    empty($check_port) ? null : $check_port,
-                    $monitor_method,
-                    $type,
-                    is_numeric($subchoice) ? (int)$subchoice : 0,
-                    empty($description) ? null : $description,
-                    empty($map_id) ? null : $map_id,
-                    100, 100, // Default X, Y positions for new devices
-                    empty($ping_interval) ? null : $ping_interval, $icon_size, $name_text_size, empty($icon_url) ? null : $icon_url,
-                    empty($warning_latency_threshold) ? null : $warning_latency_threshold, empty($warning_packetloss_threshold) ? null : $warning_packetloss_threshold,
-                    empty($critical_latency_threshold) ? null : $critical_latency_threshold, empty($critical_packetloss_threshold) ? null : $critical_packetloss_threshold,
-                    $show_live_ping
-                ]);
+                $hasSubchoice = dbColumnExists($pdo, 'devices', 'subchoice');
+                if ($hasSubchoice) {
+                    $sql = "INSERT INTO devices (user_id, name, ip, check_port, monitor_method, type, subchoice, description, map_id, x, y, ping_interval, icon_size, name_text_size, icon_url, warning_latency_threshold, warning_packetloss_threshold, critical_latency_threshold, critical_packetloss_threshold, show_live_ping) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                    $stmt = $pdo->prepare($sql);
+                    $stmt->execute([
+                        $current_user_id,
+                        $name,
+                        empty($ip) ? null : $ip,
+                        empty($check_port) ? null : $check_port,
+                        $monitor_method,
+                        $type,
+                        is_numeric($subchoice) ? (int)$subchoice : 0,
+                        empty($description) ? null : $description,
+                        empty($map_id) ? null : $map_id,
+                        100, 100, // Default X, Y positions for new devices
+                        empty($ping_interval) ? null : $ping_interval, $icon_size, $name_text_size, empty($icon_url) ? null : $icon_url,
+                        empty($warning_latency_threshold) ? null : $warning_latency_threshold, empty($warning_packetloss_threshold) ? null : $warning_packetloss_threshold,
+                        empty($critical_latency_threshold) ? null : $critical_latency_threshold, empty($critical_packetloss_threshold) ? null : $critical_packetloss_threshold,
+                        $show_live_ping
+                    ]);
+                } else {
+                    // Graceful fallback for older/fresh DB missing devices.subchoice
+                    $sql = "INSERT INTO devices (user_id, name, ip, check_port, monitor_method, type, description, map_id, x, y, ping_interval, icon_size, name_text_size, icon_url, warning_latency_threshold, warning_packetloss_threshold, critical_latency_threshold, critical_packetloss_threshold, show_live_ping) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                    $stmt = $pdo->prepare($sql);
+                    $stmt->execute([
+                        $current_user_id,
+                        $name,
+                        empty($ip) ? null : $ip,
+                        empty($check_port) ? null : $check_port,
+                        $monitor_method,
+                        $type,
+                        empty($description) ? null : $description,
+                        empty($map_id) ? null : $map_id,
+                        100, 100,
+                        empty($ping_interval) ? null : $ping_interval, $icon_size, $name_text_size, empty($icon_url) ? null : $icon_url,
+                        empty($warning_latency_threshold) ? null : $warning_latency_threshold, empty($warning_packetloss_threshold) ? null : $warning_packetloss_threshold,
+                        empty($critical_latency_threshold) ? null : $critical_latency_threshold, empty($critical_packetloss_threshold) ? null : $critical_packetloss_threshold,
+                        $show_live_ping
+                    ]);
+                }
                 // Redirect to map.php with the map_id
                 if ($map_id) {
                     header('Location: map.php?map_id=' . urlencode($map_id));
