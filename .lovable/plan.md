@@ -1,74 +1,129 @@
 
-Goal: Fix “device icon change” on the Docker app map so that when you change a device’s icon (especially variant/subchoice) in `edit-device.php`, the map shows the updated icon reliably.
+Goal
+- Make “device icon change” work after a fresh Docker reinstall by ensuring the database schema always contains `devices.subchoice`, and make the app fail gracefully (with a clear, actionable message) if the column is missing.
+- Separately: unblock Lovable preview/build by fixing invalid root `package.json` JSON (manual user action).
 
-What I found (root causes likely)
-1) The icon picker UI (`assets/icon-picker.js`) lets you click different variants, but it never writes the chosen variant index (“subchoice”) into the form. It only changes the `<select id="type">` value.
-2) `edit-device.php` updates `type` and other fields, but it does not store `subchoice` at all.
-3) The map renderer (`assets/js/map/mapManager.js` + `assets/js/map/utils.js`) depends on `device.type` + `device.subchoice` to decide which Font Awesome icon to draw. If `subchoice` never changes in the database, the map will keep drawing the old icon (or always variant 0).
-4) Even if you do save correctly, navigating back to the map can sometimes show stale UI due to browser back/forward cache (bfcache). That can make it look like the change “didn’t work” until a hard refresh.
+What’s happening (step-by-step diagnosis)
+1) Your current PHP code (create/edit device + API update_device) now writes `subchoice`:
+   - `create-device.php` inserts `subchoice`
+   - `edit-device.php` updates `subchoice`
+   - `api/handlers/device_handler.php` allows updating `subchoice`
+2) After your reinstall you removed the DB volume (fresh DB) and ran `database_setup.php`.
+3) `portal.itsupport.com.bd/docker-ampnm/database_setup.php` creates the `devices` table WITHOUT a `subchoice` column, and it also does NOT have a migration step that adds `subchoice`.
+4) Therefore any insert/update that includes `subchoice` fails with:
+   - `SQLSTATE[42S22]: Column not found: 1054 Unknown column 'subchoice' in 'field list'`
 
-Step-by-step plan to resolve
-A) Make “subchoice” a first-class form field (create + edit)
-1) In `portal.itsupport.com.bd/docker-ampnm/create-device.php`:
-   - Add a hidden input, e.g. `<input type="hidden" id="subchoice" name="subchoice" value="0">`.
-   - When inserting into `devices`, include the `subchoice` column and bind the posted value.
-2) In `portal.itsupport.com.bd/docker-ampnm/edit-device.php`:
-   - Add the same hidden input, but initialize it from the existing device row:
-     - `value="<?= htmlspecialchars($form_data['subchoice'] ?? 0) ?>"`
-   - Update the SQL UPDATE statement to set `subchoice = ?` and bind the posted subchoice.
+High-confidence fix (code changes we will implement)
+A) Fix the installer/setup so new installs never miss `subchoice`
+1) Update `portal.itsupport.com.bd/docker-ampnm/database_setup.php`
+   - In the `CREATE TABLE IF NOT EXISTS devices (...)` statement, add:
+     - `subchoice TINYINT UNSIGNED NOT NULL DEFAULT 0` (placed right after `type` to match your SQL script)
+   - In the “Schema migration” section (Step 4), add:
+     - If column `subchoice` does not exist, run:
+       - `ALTER TABLE devices ADD COLUMN subchoice TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER type;`
+   Result: fresh installs and upgrades both get the column automatically.
 
-B) Teach the icon picker to actually set the selected variant
-1) Update `portal.itsupport.com.bd/docker-ampnm/assets/icon-picker.js`:
-   - When a user clicks an icon button, set:
-     - `#type` (already done)
-     - AND `#subchoice` hidden input to the clicked `data-icon-subchoice`.
-   - When rendering, highlight the current selection using BOTH:
-     - current type (`#type.value`)
-     - current subchoice (`#subchoice.value`)
-   - On first load, call `highlightCurrentSelection(currentType, currentSubchoice)` instead of always defaulting to subchoice 0.
+2) Also update `portal.itsupport.com.bd/script-ampnm/database_setup_core.php`
+   - It contains another `CREATE TABLE devices (...)` without `subchoice` (used by the “script” installer flow).
+   - Add the same `subchoice` field to the CREATE TABLE definition.
+   - Add the same “if missing then ALTER TABLE … add subchoice” migration.
+   Result: all installation paths become consistent.
 
-Why this matters: without persisting `subchoice`, the map can only ever display the default variant for each type.
+B) Make the app resilient if the DB is still missing `subchoice` (prevents hard errors)
+Even with the setup fixed, some users may still have an old database or incomplete migration. We should avoid breaking the UI and instead show a clear “schema missing” message.
 
-C) Ensure the API path also supports subchoice (for future map-side updates)
-Even though the current map flow redirects to `edit-device.php`, the backend API handler should support `subchoice` too so any future “inline edit” or programmatic updates work.
-1) In `portal.itsupport.com.bd/docker-ampnm/api/handlers/device_handler.php`:
-   - Add `subchoice` to `$allowed_fields` for `update_device`.
-2) Verify that `get_devices` already returns `subchoice` (it appears to, based on `api.php` selecting `d.subchoice`).
+3) Harden `portal.itsupport.com.bd/docker-ampnm/edit-device.php`
+   - Before executing the UPDATE query, detect whether `devices.subchoice` exists (via INFORMATION_SCHEMA).
+   - If it does not exist:
+     - Run an UPDATE statement that omits `subchoice`
+     - Display a visible warning card explaining:
+       - “Your database is missing the required `devices.subchoice` column.”
+       - Provide the exact SQL fix (same as your Option A) and mention `FIX_SUBCHOICE_COMPLETE.sql`.
 
-D) Make the map refresh correctly after returning from edit-device (bfcache fix)
-To prevent stale map state after pressing the browser Back button:
-1) In `portal.itsupport.com.bd/docker-ampnm/map.php` (or a shared map JS file loaded by it):
-   - Add a small script:
-     - `window.addEventListener('pageshow', (e) => { if (e.persisted) window.location.reload(); });`
-This forces a reload when the page is restored from the browser cache, ensuring the new icon is fetched and rendered.
+4) Harden `portal.itsupport.com.bd/docker-ampnm/create-device.php`
+   - Same approach:
+     - If column exists: insert including `subchoice`
+     - If missing: insert without `subchoice`, show warning (so users can still create devices without the app crashing)
 
-E) Verification checklist (how we’ll confirm it’s fixed)
-1) Open map, click a device (admin), it goes to `edit-device.php?...&return=map`.
-2) Pick a different icon variant (not just type), save.
-3) Go back to the map:
-   - If using back button: it should reload automatically (pageshow fix).
-   - The device should now show the new icon variant.
-4) Confirm persistence:
-   - Re-open `edit-device.php` and confirm the selected variant remains highlighted (subchoice loaded).
-   - Refresh map in a new tab: icon remains correct.
+5) Harden `portal.itsupport.com.bd/docker-ampnm/api/handlers/device_handler.php` (update_device)
+   - Currently, `allowed_fields` includes `subchoice`, which will generate `subchoice = ?` in SQL.
+   - Add a lightweight “schema capability” check:
+     - If `subchoice` column does not exist, remove `subchoice` from `allowed_fields` at runtime.
+   - If the request tries to update `subchoice` while missing:
+     - Return a 400 JSON response that clearly states the schema is missing and provides the SQL fix.
+   Result: map edits / device edits via API won’t throw SQL exceptions that bubble up as generic failures.
 
-F) Separate but important: your Lovable build is currently failing due to missing npm scripts
-Your latest build errors show:
-- Missing script: "build:dev"
-- Missing script: "build"
-To fix this, edit the ROOT `package.json` and ensure these scripts exist:
-- "dev": "vite"
-- "build": "vite build"
-- "build:dev": "vite build --mode development"
-- "preview": "vite preview"
-This doesn’t affect the Docker/PHP app itself, but it’s required for the Lovable web preview/build system to work reliably.
+C) “One-click” schema health hint (optional but recommended)
+6) Add a small admin-only warning banner somewhere obvious (for example on `devices.php` or `edit-device.php`):
+   - If `subchoice` column missing, show:
+     - Red badge: “Database needs a small upgrade”
+     - A copyable SQL snippet
+   This reduces repeated support requests.
 
-Implementation order (fastest path)
-1) Add hidden `subchoice` inputs + SQL updates in `create-device.php` and `edit-device.php`
-2) Update `assets/icon-picker.js` to write/read subchoice
-3) Add `subchoice` to device API allowed fields
-4) Add bfcache reload handler on map page
-5) Manual test flow end-to-end
+What you still need to do right now (because the live DB is already missing the column)
+- Even after we fix the code, the CURRENT database still needs the column added once.
+- Use either:
+  - Option A:
+    ```sql
+    ALTER TABLE devices
+    ADD COLUMN subchoice TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER type;
+    ```
+  - Option B: Run `portal.itsupport.com.bd/docker-ampnm/FIX_SUBCHOICE_COMPLETE.sql`
+- Then restart the container (if needed) and hard refresh.
 
-Notes / assumptions
-- This plan assumes the `devices` table already has a `subchoice` column (it’s referenced in selects). If it doesn’t exist in your current DB, we’ll need to add it (schema change), but given the code references and the presence of `FIX_SUBCHOICE_COMPLETE.sql`, it’s very likely already present.
+Separate critical issue: Lovable preview/build is blocked by invalid package.json (manual fix required)
+- Your root `package.json` is not valid JSON right now (it has `"build:dev"` placed inside `"dependencies"` and there’s a missing comma).
+- You must edit it to this structure (example):
+  ```json
+  {
+    "scripts": {
+      "dev": "vite",
+      "build": "vite build",
+      "build:dev": "vite build --mode development",
+      "preview": "vite preview"
+    },
+    "dependencies": {
+      "@supabase/supabase-js": "^2.91.1",
+      "react": "^19.2.3",
+      "react-dom": "^19.2.3"
+    },
+    "devDependencies": {
+      "@types/react": "^19.2.9",
+      "@types/react-dom": "^19.2.3",
+      "@vitejs/plugin-react": "^5.1.2",
+      "typescript": "^5.9.3",
+      "vite": "^7.3.1",
+      "lovable-tagger": "^1.1.13"
+    }
+  }
+  ```
+- Until that is fixed, the build errors you pasted (missing react/jsx-runtime, JSX.IntrinsicElements, etc.) will continue because dependencies cannot install.
+
+Implementation order (what I will do once you approve)
+1) Update `docker-ampnm/database_setup.php` (CREATE TABLE devices + migration adds subchoice)
+2) Update `script-ampnm/database_setup_core.php` (same)
+3) Add graceful fallback logic in:
+   - `create-device.php`
+   - `edit-device.php`
+   - `api/handlers/device_handler.php` (update_device)
+4) (Optional) Add a small admin banner warning if schema is missing
+5) Provide a quick verification checklist
+
+Verification checklist
+- Fresh install test:
+  1) Remove DB volume
+  2) Run `database_setup.php`
+  3) Confirm `devices` has column `subchoice`
+  4) Create device, edit icon variant, save: no SQL error
+- Upgrade test:
+  1) Existing DB without `subchoice`
+  2) Run `database_setup.php`
+  3) Confirm it adds `subchoice`
+  4) Edit icon variant: works
+- Resilience test:
+  1) Temporarily skip migration
+  2) Attempt edit:
+     - App does not crash; shows a clear “missing column” message with SQL to run
+
+Notes / constraints
+- This issue cannot be fully solved by code alone without ever running a DB change, because `subchoice` is persisted state and must exist in the database to store the icon variant. The code improvements ensure (a) installs create it automatically and (b) the UI/API produces clear guidance instead of a hard SQL exception.
