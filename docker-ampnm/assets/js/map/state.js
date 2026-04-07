@@ -9,5 +9,16 @@ MapApp.state = {
     pingIntervals: {},
     animationFrameId: null,
     tick: 0,
-    globalRefreshIntervalId: null
+    globalRefreshIntervalId: null,
+    // Time-based failure tracking per device: { deviceId: timestamp }
+    deviceFirstFailTime: {},
+    // Agent registration tracking
+    knownHostnames: new Set(),
+    agentPollIntervalId: null,
+    // Per-map mouse-over field visibility settings
+    tooltipFieldSettingsByMap: {},
+    // Per-map connection tooltip field visibility settings
+    connectionTooltipFieldSettingsByMap: {},
+    // Per-map mouse-over tooltip display preferences
+    tooltipDisplaySettingsByMap: {}
 };

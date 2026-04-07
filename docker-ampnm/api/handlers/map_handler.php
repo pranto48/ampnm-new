@@ -44,14 +44,20 @@ switch ($action) {
             $updates = $input['updates'] ?? [];
             if (!$id || empty($updates)) { http_response_code(400); echo json_encode(['error' => 'Map ID and updates are required']); exit; }
             
-            $allowed_fields = ['name', 'background_color', 'background_image_url', 'public_view_enabled'];
+            $allowed_fields = ['name', 'background_color', 'background_image_url', 'public_view_enabled', 'offline_delay_seconds'];
             $fields = []; $params = [];
             foreach ($updates as $key => $value) {
                 if (in_array($key, $allowed_fields)) {
                     $fields[] = "$key = ?";
                     // Handle boolean conversion for public_view_enabled
                     if ($key === 'public_view_enabled') {
-                        $params[] = (bool)$value;
+                        $params[] = !empty($value) ? 1 : 0;
+                    } elseif ($key === 'offline_delay_seconds') {
+                        $delay = (int)$value;
+                        if ($delay < 1 || $delay > 300) {
+                            $delay = 5;
+                        }
+                        $params[] = $delay;
                     } else {
                         $params[] = ($value === '') ? null : $value;
                     }
@@ -96,9 +102,17 @@ switch ($action) {
     case 'create_edge':
         if ($user_role !== 'admin') { http_response_code(403); echo json_encode(['error' => 'Forbidden: Only admin can create edges.']); exit; }
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-            $sql = "INSERT INTO device_edges (user_id, source_id, target_id, map_id, connection_type) VALUES (?, ?, ?, ?, ?)";
+            $sql = "INSERT INTO device_edges (user_id, source_id, target_id, map_id, connection_type, source_port_label, target_port_label) VALUES (?, ?, ?, ?, ?, ?, ?)";
             $stmt = $pdo->prepare($sql);
-            $stmt->execute([$current_user_id, $input['source_id'], $input['target_id'], $input['map_id'], $input['connection_type'] ?? 'cat5']);
+            $stmt->execute([
+                $current_user_id, 
+                $input['source_id'], 
+                $input['target_id'], 
+                $input['map_id'], 
+                $input['connection_type'] ?? 'cat5',
+                $input['source_port_label'] ?? null,
+                $input['target_port_label'] ?? null
+            ]);
             $lastId = $pdo->lastInsertId();
             $stmt = $pdo->prepare("SELECT * FROM device_edges WHERE id = ? AND user_id = ?");
             $stmt->execute([$lastId, $current_user_id]);
@@ -112,9 +126,11 @@ switch ($action) {
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $id = $input['id'] ?? null;
             $connection_type = $input['connection_type'] ?? 'cat5';
+            $source_port_label = $input['source_port_label'] ?? null;
+            $target_port_label = $input['target_port_label'] ?? null;
             if (!$id) { http_response_code(400); echo json_encode(['error' => 'Edge ID is required']); exit; }
-            $stmt = $pdo->prepare("UPDATE device_edges SET connection_type = ? WHERE id = ? AND user_id = ?");
-            $stmt->execute([$connection_type, $id, $current_user_id]);
+            $stmt = $pdo->prepare("UPDATE device_edges SET connection_type = ?, source_port_label = ?, target_port_label = ? WHERE id = ? AND user_id = ?");
+            $stmt->execute([$connection_type, $source_port_label, $target_port_label, $id, $current_user_id]);
             $stmt = $pdo->prepare("SELECT * FROM device_edges WHERE id = ? AND user_id = ?");
             $stmt->execute([$id, $current_user_id]);
             $edge = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -133,29 +149,101 @@ switch ($action) {
         }
         break;
     
+
+    case 'export_map':
+        if ($user_role !== 'admin') { http_response_code(403); echo json_encode(['error' => 'Forbidden: Only admin can export maps.']); exit; }
+        $map_id = $_GET['map_id'] ?? null;
+        if (!$map_id) { http_response_code(400); echo json_encode(['error' => 'Map ID is required']); exit; }
+
+        $stmt = $pdo->prepare("SELECT id FROM maps WHERE id = ? AND user_id = ?");
+        $stmt->execute([$map_id, $current_user_id]);
+        if (!$stmt->fetch(PDO::FETCH_ASSOC)) { http_response_code(404); echo json_encode(['error' => 'Map not found or access denied.']); exit; }
+
+        $stmt = $pdo->prepare("SELECT * FROM devices WHERE map_id = ? AND user_id = ? ORDER BY id ASC");
+        $stmt->execute([$map_id, $current_user_id]);
+        $devices = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $stmt = $pdo->prepare("SELECT source_id, target_id, connection_type, source_port_label, target_port_label FROM device_edges WHERE map_id = ? AND user_id = ? ORDER BY id ASC");
+        $stmt->execute([$map_id, $current_user_id]);
+        $edges = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $deviceIds = array_map(static fn($d) => (int)$d['id'], $devices);
+        $switch_ports = [];
+        $cables = [];
+
+        if (!empty($deviceIds)) {
+            $in = implode(',', array_fill(0, count($deviceIds), '?'));
+
+            $stmt = $pdo->prepare("SELECT device_id, port_number, port_label, status, speed, vlan, connected_device, notes FROM switch_ports WHERE device_id IN ($in) ORDER BY device_id ASC, port_number ASC");
+            $stmt->execute($deviceIds);
+            $switch_ports = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            $sqlCables = "SELECT floor_plan_id, cable_type, cable_color, cable_length, label, source_type, source_id, source_port, dest_type, dest_id, dest_port, notes
+                FROM cable_runs
+                WHERE ((source_type IN ('switch', 'device') AND source_id IN ($in))
+                   OR  (dest_type IN ('switch', 'device') AND dest_id IN ($in)))
+                ORDER BY id ASC";
+            $stmt = $pdo->prepare($sqlCables);
+            $stmt->execute(array_merge($deviceIds, $deviceIds));
+            $cables = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        }
+
+        echo json_encode([
+            'success' => true,
+            'devices' => $devices,
+            'edges' => $edges,
+            'switch_ports' => $switch_ports,
+            'cables' => $cables
+        ]);
+        break;
+
     case 'import_map':
         if ($user_role !== 'admin') { http_response_code(403); echo json_encode(['error' => 'Forbidden: Only admin can import maps.']); exit; }
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $map_id = $input['map_id'] ?? null;
             $devices = $input['devices'] ?? [];
             $edges = $input['edges'] ?? [];
+            $switch_ports = $input['switch_ports'] ?? [];
+            $cables = $input['cables'] ?? [];
             if (!$map_id) { http_response_code(400); echo json_encode(['error' => 'Map ID is required']); exit; }
 
             try {
                 $pdo->beginTransaction();
+
+                // Ensure map ownership
+                $stmt = $pdo->prepare("SELECT id FROM maps WHERE id = ? AND user_id = ?");
+                $stmt->execute([$map_id, $current_user_id]);
+                if (!$stmt->fetch(PDO::FETCH_ASSOC)) {
+                    throw new Exception('Map not found or access denied.');
+                }
+
+                // Collect existing map device IDs for cable cleanup
+                $stmt = $pdo->prepare("SELECT id FROM devices WHERE map_id = ? AND user_id = ?");
+                $stmt->execute([$map_id, $current_user_id]);
+                $existingIds = array_map(static fn($r) => (int)$r['id'], $stmt->fetchAll(PDO::FETCH_ASSOC));
+                if (!empty($existingIds)) {
+                    $in = implode(',', array_fill(0, count($existingIds), '?'));
+                    $sqlDeleteCables = "DELETE FROM cable_runs
+                        WHERE ((source_type IN ('switch', 'device') AND source_id IN ($in))
+                           OR  (dest_type IN ('switch', 'device') AND dest_id IN ($in)))";
+                    $stmt = $pdo->prepare($sqlDeleteCables);
+                    $stmt->execute(array_merge($existingIds, $existingIds));
+                }
+
                 // Delete old data for this user and map
-                $stmt = $pdo->prepare("DELETE FROM device_edges WHERE map_id = ? AND user_id = ?"); $stmt->execute([$map_id, $current_user_id]);
-                $stmt = $pdo->prepare("DELETE FROM devices WHERE map_id = ? AND user_id = ?"); $stmt->execute([$map_id, $current_user_id]);
+                $stmt = $pdo->prepare("DELETE FROM device_edges WHERE map_id = ? AND user_id = ?");
+                $stmt->execute([$map_id, $current_user_id]);
+                $stmt = $pdo->prepare("DELETE FROM devices WHERE map_id = ? AND user_id = ?");
+                $stmt->execute([$map_id, $current_user_id]);
 
                 // Insert new devices
                 $device_id_map = [];
                 $sql = "INSERT INTO devices (
-                    user_id, name, ip, check_port, type, x, y, map_id, 
-                    ping_interval, icon_size, name_text_size, icon_url, 
-                    warning_latency_threshold, warning_packetloss_threshold, 
-                    critical_latency_threshold, critical_packetloss_threshold, 
-                    show_live_ping
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                    user_id, name, ip, check_port, monitor_method, type, subchoice, description, map_id, x, y,
+                    ping_interval, icon_size, name_text_size, icon_url,
+                    warning_latency_threshold, warning_packetloss_threshold, critical_latency_threshold, critical_packetloss_threshold,
+                    show_live_ping, port_config
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
                 $stmt = $pdo->prepare($sql);
                 foreach ($devices as $device) {
                     $stmt->execute([
@@ -163,10 +251,13 @@ switch ($action) {
                         $device['name'] ?? 'Unnamed Device',
                         $device['ip'] ?? null,
                         $device['check_port'] ?? null,
+                        $device['monitor_method'] ?? 'ping',
                         $device['type'] ?? 'other',
+                        $device['subchoice'] ?? 0,
+                        $device['description'] ?? null,
+                        $map_id,
                         $device['x'] ?? null,
                         $device['y'] ?? null,
-                        $map_id,
                         $device['ping_interval'] ?? null,
                         $device['icon_size'] ?? 50,
                         $device['name_text_size'] ?? 14,
@@ -175,22 +266,90 @@ switch ($action) {
                         $device['warning_packetloss_threshold'] ?? null,
                         $device['critical_latency_threshold'] ?? null,
                         $device['critical_packetloss_threshold'] ?? null,
-                        ($device['show_live_ping'] ?? false) ? 1 : 0
+                        ($device['show_live_ping'] ?? false) ? 1 : 0,
+                        $device['port_config'] ?? null
                     ]);
                     $new_id = $pdo->lastInsertId();
-                    $device_id_map[$device['id']] = $new_id;
-                }
-
-                // Insert new edges
-                $sql = "INSERT INTO device_edges (user_id, source_id, target_id, map_id, connection_type) VALUES (?, ?, ?, ?, ?)";
-                $stmt = $pdo->prepare($sql);
-                foreach ($edges as $edge) {
-                    $new_source_id = $device_id_map[$edge['source_id']] ?? null;
-                    $new_target_id = $device_id_map[$edge['target_id']] ?? null;
-                    if ($new_source_id && $new_target_id) {
-                        $stmt->execute([$current_user_id, $new_source_id, $new_target_id, $map_id, $edge['connection_type'] ?? 'cat5']);
+                    if (isset($device['id'])) {
+                        $device_id_map[(string)$device['id']] = (int)$new_id;
                     }
                 }
+
+                // Insert new edges with port labels and cable type
+                $sql = "INSERT INTO device_edges (user_id, source_id, target_id, map_id, connection_type, source_port_label, target_port_label) VALUES (?, ?, ?, ?, ?, ?, ?)";
+                $stmt = $pdo->prepare($sql);
+                foreach ($edges as $edge) {
+                    $new_source_id = $device_id_map[(string)($edge['source_id'] ?? '')] ?? null;
+                    $new_target_id = $device_id_map[(string)($edge['target_id'] ?? '')] ?? null;
+                    if ($new_source_id && $new_target_id) {
+                        $stmt->execute([
+                            $current_user_id,
+                            $new_source_id,
+                            $new_target_id,
+                            $map_id,
+                            $edge['connection_type'] ?? 'cat6',
+                            $edge['source_port_label'] ?? null,
+                            $edge['target_port_label'] ?? null
+                        ]);
+                    }
+                }
+
+                // Insert switch/device port metadata
+                if (!empty($switch_ports)) {
+                    $sql = "INSERT INTO switch_ports (device_id, port_number, port_label, status, speed, vlan, connected_device, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+                    $stmt = $pdo->prepare($sql);
+                    foreach ($switch_ports as $port) {
+                        $newDeviceId = $device_id_map[(string)($port['device_id'] ?? '')] ?? null;
+                        if (!$newDeviceId) continue;
+                        $stmt->execute([
+                            $newDeviceId,
+                            (int)($port['port_number'] ?? 0),
+                            $port['port_label'] ?? null,
+                            $port['status'] ?? 'inactive',
+                            $port['speed'] ?? '1G',
+                            $port['vlan'] ?? null,
+                            $port['connected_device'] ?? null,
+                            $port['notes'] ?? null
+                        ]);
+                    }
+                }
+
+                // Insert cables and preserve cable type/length/ports
+                if (!empty($cables)) {
+                    $sql = "INSERT INTO cable_runs (floor_plan_id, cable_type, cable_color, cable_length, label, source_type, source_id, source_port, dest_type, dest_id, dest_port, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                    $stmt = $pdo->prepare($sql);
+                    foreach ($cables as $cable) {
+                        $sourceType = $cable['source_type'] ?? 'switch';
+                        $destType = $cable['dest_type'] ?? 'switch';
+                        $sourceId = $cable['source_id'] ?? null;
+                        $destId = $cable['dest_id'] ?? null;
+
+                        if (in_array($sourceType, ['switch', 'device'], true)) {
+                            $sourceId = $device_id_map[(string)$sourceId] ?? null;
+                            if (!$sourceId) continue;
+                        }
+                        if (in_array($destType, ['switch', 'device'], true)) {
+                            $destId = $device_id_map[(string)$destId] ?? null;
+                            if (!$destId) continue;
+                        }
+
+                        $stmt->execute([
+                            null,
+                            $cable['cable_type'] ?? 'cat6',
+                            $cable['cable_color'] ?? 'blue',
+                            $cable['cable_length'] ?? null,
+                            $cable['label'] ?? null,
+                            $sourceType,
+                            (int)$sourceId,
+                            (int)($cable['source_port'] ?? 1),
+                            $destType,
+                            (int)$destId,
+                            (int)($cable['dest_port'] ?? 1),
+                            $cable['notes'] ?? null
+                        ]);
+                    }
+                }
+
                 $pdo->commit();
                 echo json_encode(['success' => true, 'message' => 'Map imported successfully.']);
             } catch (Exception $e) {
@@ -200,7 +359,7 @@ switch ($action) {
             }
         }
         break;
-    
+
     case 'upload_map_background':
         if ($user_role !== 'admin') { http_response_code(403); echo json_encode(['error' => 'Forbidden: Only admin can upload map backgrounds.']); exit; }
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -256,6 +415,32 @@ switch ($action) {
                 http_response_code(500);
                 echo json_encode(['error' => 'Failed to save uploaded file.']);
             }
+        }
+        break;
+
+    case 'get_device_used_ports':
+        $device_id = $_GET['device_id'] ?? null;
+        $exclude_edge_id = $_GET['exclude_edge_id'] ?? null;
+        if (!$device_id) { http_response_code(400); echo json_encode(['error' => 'device_id is required']); exit; }
+
+        try {
+            $stmt = $pdo->prepare("SELECT id, source_id, target_id, source_port_label, target_port_label FROM device_edges WHERE source_id = ? OR target_id = ?");
+            $stmt->execute([$device_id, $device_id]);
+            $edges = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $ports = [];
+            foreach ($edges as $e) {
+                // Skip the edge being currently edited so its port remains selectable
+                if ($exclude_edge_id && $e['id'] == $exclude_edge_id) continue;
+                if ($e['source_id'] == $device_id && !empty($e['source_port_label'])) {
+                    $ports[] = $e['source_port_label'];
+                }
+                if ($e['target_id'] == $device_id && !empty($e['target_port_label'])) {
+                    $ports[] = $e['target_port_label'];
+                }
+            }
+            echo json_encode(['ports' => array_values(array_unique($ports))]);
+        } catch (PDOException $ex) {
+            echo json_encode(['ports' => []]);
         }
         break;
 }

@@ -2,27 +2,30 @@
 // This file is included by api.php and assumes $pdo, $action, and $input are available.
 $current_user_id = $_SESSION['user_id'];
 $user_role = $_SESSION['user_role'] ?? 'viewer'; // Get current user's role
+require_once __DIR__ . '/../../includes/smtp_mailer.php';
 
-// Placeholder for email notification function
 function sendEmailNotification($pdo, $device, $oldStatus, $newStatus, $details) {
-    // In a real application, this would fetch SMTP settings and subscriptions,
-    // then use a mailer library (e.g., PHPMailer) to send emails.
-    // For now, we'll just log that a notification *would* be sent.
-    error_log("DEBUG: Notification triggered for device '{$device['name']}' (ID: {$device['id']}). Status changed from {$oldStatus} to {$newStatus}. Details: {$details}");
-
-    // Fetch SMTP settings for the current user
-    $stmtSmtp = $pdo->prepare("SELECT * FROM smtp_settings WHERE user_id = ?");
-    $stmtSmtp->execute([$_SESSION['user_id']]);
-    $smtpSettings = $stmtSmtp->fetch(PDO::FETCH_ASSOC);
-
-    if (!$smtpSettings) {
-        error_log("DEBUG: No SMTP settings found for user {$_SESSION['user_id']}. Cannot send email notification.");
+    if (!in_array($newStatus, ['online', 'offline', 'warning', 'critical'], true)) {
         return;
     }
 
-    // Fetch subscriptions for this device and status change
+    $userId = (int)($_SESSION['user_id'] ?? 0);
+    if ($userId <= 0) {
+        error_log('Email notification skipped: invalid session user');
+        return;
+    }
+
+    $stmtSmtp = $pdo->prepare("SELECT * FROM smtp_settings WHERE user_id = ?");
+    $stmtSmtp->execute([$userId]);
+    $smtpSettings = $stmtSmtp->fetch(PDO::FETCH_ASSOC);
+
+    if (!$smtpSettings) {
+        error_log("Email notification skipped: no SMTP settings for user {$userId}.");
+        return;
+    }
+
     $sqlSubscriptions = "SELECT recipient_email FROM device_email_subscriptions WHERE user_id = ? AND device_id = ?";
-    $paramsSubscriptions = [$_SESSION['user_id'], $device['id']];
+    $paramsSubscriptions = [$userId, $device['id']];
 
     if ($newStatus === 'online') {
         $sqlSubscriptions .= " AND notify_on_online = TRUE";
@@ -32,9 +35,6 @@ function sendEmailNotification($pdo, $device, $oldStatus, $newStatus, $details) 
         $sqlSubscriptions .= " AND notify_on_warning = TRUE";
     } elseif ($newStatus === 'critical') {
         $sqlSubscriptions .= " AND notify_on_critical = TRUE";
-    } else {
-        // No specific notification for 'unknown' status changes
-        return;
     }
 
     $stmtSubscriptions = $pdo->prepare($sqlSubscriptions);
@@ -42,18 +42,24 @@ function sendEmailNotification($pdo, $device, $oldStatus, $newStatus, $details) 
     $recipients = $stmtSubscriptions->fetchAll(PDO::FETCH_COLUMN);
 
     if (empty($recipients)) {
-        error_log("DEBUG: No active subscriptions for device '{$device['name']}' on status '{$newStatus}'.");
+        error_log("Email notification skipped: no active subscriptions for device '{$device['name']}' status '{$newStatus}'.");
         return;
     }
 
-    // Simulate sending email
+    $subject = sprintf('AMPNM Alert: %s is %s', $device['name'], strtoupper($newStatus));
+    $body = "Device: {$device['name']}\n"
+        . "IP: " . ($device['ip'] ?? 'N/A') . "\n"
+        . "Previous Status: {$oldStatus}\n"
+        . "Current Status: {$newStatus}\n"
+        . "Details: {$details}\n"
+        . "Time (UTC): " . gmdate('Y-m-d H:i:s') . "\n";
+
     foreach ($recipients as $recipient) {
-        error_log("DEBUG: Simulating email to {$recipient} for device '{$device['name']}' status change to '{$newStatus}'.");
-        // In a real scenario, you'd use a mailer library here:
-        // $mailer = new PHPMailer(true);
-        // Configure $mailer with $smtpSettings
-        // Set recipient, subject, body
-        // $mailer->send();
+        $smtpError = null;
+        $sent = smtp_send_mail($smtpSettings, $recipient, $subject, $body, $smtpError);
+        if (!$sent) {
+            error_log("Email send failed for {$recipient} (device {$device['name']}, status {$newStatus}): " . ($smtpError ?? 'Unknown SMTP error'));
+        }
     }
 }
 
@@ -424,12 +430,13 @@ switch ($action) {
 
         $sql = "
             SELECT 
-                d.id, d.name, d.ip, d.check_port, d.monitor_method, d.type, d.description, d.enabled, d.x, d.y, d.map_id,
+                d.id, d.name, d.ip, d.check_port, d.monitor_method, d.type, d.subchoice, d.description, d.enabled, d.x, d.y, d.map_id,
                 d.ping_interval, d.icon_size, d.name_text_size, d.icon_url,
                 d.router_api_username, d.router_api_password, d.router_api_port,
                 d.warning_latency_threshold, d.warning_packetloss_threshold,
                 d.critical_latency_threshold, d.critical_packetloss_threshold,
                 d.last_avg_time, d.last_ttl, d.show_live_ping, d.status, d.last_seen,
+                d.port_config,
                 m.name as map_name,
                 p.output as last_ping_output
             FROM 
@@ -486,16 +493,18 @@ switch ($action) {
                 exit;
             }
 
-            $sql = "INSERT INTO devices (user_id, name, ip, check_port, monitor_method, type, description, map_id, x, y, ping_interval, icon_size, name_text_size, icon_url, router_api_username, router_api_password, router_api_port, warning_latency_threshold, warning_packetloss_threshold, critical_latency_threshold, critical_packetloss_threshold, show_live_ping) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+            $sql = "INSERT INTO devices (user_id, name, ip, check_port, monitor_method, type, subchoice, description, map_id, x, y, ping_interval, icon_size, name_text_size, icon_url, router_api_username, router_api_password, router_api_port, warning_latency_threshold, warning_packetloss_threshold, critical_latency_threshold, critical_packetloss_threshold, show_live_ping, port_config) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
             $stmt = $pdo->prepare($sql);
+            $portConfigValue = isset($input['port_config']) ? (is_string($input['port_config']) ? $input['port_config'] : json_encode($input['port_config'])) : null;
             $stmt->execute([
-                $current_user_id, $input['name'], $input['ip'] ?? null, $input['check_port'] ?? null, $input['monitor_method'] ?? 'ping', $input['type'], $input['description'] ?? null, $input['map_id'] ?? null,
+                $current_user_id, $input['name'], $input['ip'] ?? null, $input['check_port'] ?? null, $input['monitor_method'] ?? 'ping', $input['type'], $input['subchoice'] ?? 0, $input['description'] ?? null, $input['map_id'] ?? null,
                 $input['x'] ?? null, $input['y'] ?? null,
                 $input['ping_interval'] ?? null, $input['icon_size'] ?? 50, $input['name_text_size'] ?? 14, $input['icon_url'] ?? null,
                 $input['router_api_username'] ?? null, $input['router_api_password'] ?? null, $input['router_api_port'] ?? null,
                 $input['warning_latency_threshold'] ?? null, $input['warning_packetloss_threshold'] ?? null,
                 $input['critical_latency_threshold'] ?? null, $input['critical_packetloss_threshold'] ?? null,
-                ($input['show_live_ping'] ?? false) ? 1 : 0
+                ($input['show_live_ping'] ?? false) ? 1 : 0,
+                $portConfigValue
             ]);
             $lastId = $pdo->lastInsertId();
             $stmt = $pdo->prepare("SELECT * FROM devices WHERE id = ? AND user_id = ?");
@@ -533,7 +542,7 @@ switch ($action) {
                 exit;
             }
 
-            $allowed_fields = ['name', 'ip', 'check_port', 'monitor_method', 'type', 'subchoice', 'description', 'x', 'y', 'map_id', 'ping_interval', 'icon_size', 'name_text_size', 'icon_url', 'router_api_username', 'router_api_password', 'router_api_port', 'warning_latency_threshold', 'warning_packetloss_threshold', 'critical_latency_threshold', 'critical_packetloss_threshold', 'show_live_ping', 'status', 'last_seen', 'last_avg_time', 'last_ttl']; // Added status and last_seen
+            $allowed_fields = ['name', 'ip', 'check_port', 'monitor_method', 'type', 'subchoice', 'description', 'x', 'y', 'map_id', 'ping_interval', 'icon_size', 'name_text_size', 'icon_url', 'router_api_username', 'router_api_password', 'router_api_port', 'warning_latency_threshold', 'warning_packetloss_threshold', 'critical_latency_threshold', 'critical_packetloss_threshold', 'show_live_ping', 'status', 'last_seen', 'last_avg_time', 'last_ttl', 'port_config']; // Added status, last_seen, port_config
             if (!$hasSubchoice) {
                 $allowed_fields = array_values(array_diff($allowed_fields, ['subchoice']));
             }
@@ -682,7 +691,7 @@ switch ($action) {
                 $suffix++;
             }
 
-            $insertSql = "INSERT INTO devices (user_id, name, ip, check_port, monitor_method, type, description, map_id, x, y, ping_interval, icon_size, name_text_size, icon_url, router_api_username, router_api_password, router_api_port, warning_latency_threshold, warning_packetloss_threshold, critical_latency_threshold, critical_packetloss_threshold, show_live_ping) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+            $insertSql = "INSERT INTO devices (user_id, name, ip, check_port, monitor_method, type, subchoice, port_config, description, map_id, x, y, ping_interval, icon_size, name_text_size, icon_url, router_api_username, router_api_password, router_api_port, warning_latency_threshold, warning_packetloss_threshold, critical_latency_threshold, critical_packetloss_threshold, show_live_ping) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
             $insertStmt = $pdo->prepare($insertSql);
             $insertStmt->execute([
                 $current_user_id,
@@ -691,6 +700,8 @@ switch ($action) {
                 $device['check_port'],
                 $device['monitor_method'] ?? 'ping',
                 $device['type'],
+                $device['subchoice'] ?? 0,
+                $device['port_config'] ?? null,
                 $device['description'],
                 $device['map_id'],
                 $device['x'],
@@ -857,7 +868,7 @@ switch ($action) {
                             $new_source_id,
                             $new_target_id,
                             $map_id, // Assign to the current map_id
-                            $edge['connection_type'] ?? 'cat5'
+                            $edge['connection_type'] ?? 'cat6'
                         ]);
                     }
                 }

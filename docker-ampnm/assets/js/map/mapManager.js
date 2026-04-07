@@ -230,6 +230,40 @@ MapApp.mapManager = {
             'fa-pen-to-square': '\uf044',
             'fa-hand-pointer': '\uf25a',
             'fa-square-pen': '\uf14b',
+
+            // Additional library icons
+            'fa-globe': '\uf0ac',
+            'fa-earth-americas': '\uf57d',
+            'fa-earth-asia': '\uf57e',
+            'fa-earth-europe': '\uf7a2',
+            'fa-earth-africa': '\uf57c',
+            'fa-earth-oceania': '\ue47b',
+            'fa-clouds': '\uf744',
+            'fa-satellite': '\uf7bf',
+            'fa-radar': '\ue024',
+            'fa-grip-vertical': '\uf58e',
+            'fa-gears': '\uf085',
+            'fa-gear': '\uf013',
+            'fa-wrench': '\uf0ad',
+            'fa-screwdriver-wrench': '\uf7d9',
+            'fa-robot': '\uf544',
+            'fa-terminal': '\uf120',
+            'fa-code': '\uf121',
+            'fa-link': '\uf0c1',
+            'fa-barcode': '\uf02a',
+            'fa-qrcode': '\uf029',
+            'fa-envelope': '\uf0e0',
+            'fa-envelope-open': '\uf2b6',
+            'fa-message': '\uf27a',
+            'fa-at': '\uf1fa',
+            'fa-mailbox': '\uf813',
+            'fa-inbox': '\uf01c',
+            'fa-map-signs': '\uf277',
+            'fa-signs-post': '\uf277',
+            'fa-house': '\uf015',
+            'fa-house-signal': '\ue012',
+            'fa-project-diagram': '\uf542',
+            'fa-video-camera': '\uf03d',
             
             // Generic
             'fa-circle': '\uf111',
@@ -274,6 +308,12 @@ MapApp.mapManager = {
             mapEl.style.backgroundPosition = 'center';
             // Update public view link display
             MapApp.mapManager.updatePublicViewLink(currentMap.id, currentMap.public_view_enabled);
+            // Apply offline delay setting
+            const delaySeconds = currentMap.offline_delay_seconds || 5;
+            MapApp.config.offlineDelayMs = delaySeconds * 1000;
+            // Update offline delay badge in toolbar
+            const delayBadge = document.getElementById('offlineDelayValue');
+            if (delayBadge) delayBadge.textContent = delaySeconds;
         }
         
         // Correctly extract the 'devices' array from the API response
@@ -282,6 +322,14 @@ MapApp.mapManager = {
             MapApp.api.get('get_edges', { map_id: mapId })
         ]);
         const deviceData = deviceResponse.devices || []; // Extract the array here
+        const userStorageId = window.currentLoggedInUserId || window.currentLoggedInUsername || 'guest';
+        const nodePosStorageKey = `ampnm_map_node_positions:${userStorageId}:${mapId}`;
+        let nodePositionOverrides = {};
+        try {
+            nodePositionOverrides = JSON.parse(localStorage.getItem(nodePosStorageKey) || '{}') || {};
+        } catch (error) {
+            nodePositionOverrides = {};
+        }
         
         const visNodes = deviceData.map(d => {
             let label = d.name;
@@ -289,9 +337,11 @@ MapApp.mapManager = {
                 label += `\n${d.last_avg_time}ms | TTL:${d.last_ttl || 'N/A'}`;
             }
 
+            const overridePos = nodePositionOverrides[d.id] || nodePositionOverrides[String(d.id)] || null;
+
             const baseNode = {
                 id: d.id, label: label, title: MapApp.utils.buildNodeTitle(d),
-                x: d.x, y: d.y,
+                x: overridePos?.x ?? d.x, y: overridePos?.y ?? d.y,
                 font: { color: 'white', size: parseInt(d.name_text_size) || 14, multi: true },
                 deviceData: d
             };
@@ -310,7 +360,7 @@ MapApp.mapManager = {
             
             // Box type
             if (d.type === 'box') {
-                return { ...baseNode, shape: 'box', color: { background: 'rgba(49, 65, 85, 0.5)', border: '#475569' }, margin: 20, level: -1 };
+                return MapApp.utils.buildVisBoxNode(baseNode, d);
             }
 
             // Use dynamic icon mapping based on type and subchoice
@@ -331,7 +381,19 @@ MapApp.mapManager = {
         MapApp.state.nodes.clear(); 
         MapApp.state.nodes.add(visNodes);
 
-        const visEdges = edgeData.map(e => ({ id: e.id, from: e.source_id, to: e.target_id, connection_type: e.connection_type, label: e.connection_type }));
+        const visEdges = edgeData.map(e => {
+            let edgeLabel = e.connection_type;
+            if (e.source_port_label && e.target_port_label) {
+                edgeLabel = `${e.source_port_label} ↔ ${e.target_port_label}`;
+            } else if (e.source_port_label || e.target_port_label) {
+                edgeLabel = `${e.source_port_label || '—'} ↔ ${e.target_port_label || '—'}`;
+            }
+            // Build rich tooltip for edge
+            const srcDevice = deviceData.find(d => d.id === e.source_id || d.id == e.source_id);
+            const tgtDevice = deviceData.find(d => d.id === e.target_id || d.id == e.target_id);
+            const title = MapApp.utils.buildEdgeTitle(e, srcDevice, tgtDevice);
+            return { id: e.id, from: e.source_id, to: e.target_id, connection_type: e.connection_type, source_port_label: e.source_port_label, target_port_label: e.target_port_label, label: edgeLabel, title };
+        });
         console.log('visEdges array before adding to dataset:', visEdges);
         MapApp.state.edges.clear(); 
         MapApp.state.edges.add(visEdges);
@@ -339,6 +401,7 @@ MapApp.mapManager = {
         
         MapApp.deviceManager.setupAutoPing(deviceData);
         if (!MapApp.state.network) MapApp.network.initializeMap();
+        else MapApp.network.restoreSavedView();
         if (!MapApp.state.animationFrameId) MapApp.ui.updateAndAnimateEdges();
     },
 
@@ -387,7 +450,7 @@ MapApp.mapManager = {
             if (createdDevice.icon_url) {
                 visNode = { ...baseNode, shape: 'image', image: createdDevice.icon_url, size: (parseInt(createdDevice.icon_size) || 50) / 2, color: { border: MapApp.config.statusColorMap[createdDevice.status] || MapApp.config.statusColorMap.unknown, background: 'transparent' }, borderWidth: 3 };
             } else if (createdDevice.type === 'box') {
-                visNode = { ...baseNode, shape: 'box', color: { background: 'rgba(49, 65, 85, 0.5)', border: '#475569' }, margin: 20, level: -1 };
+                visNode = MapApp.utils.buildVisBoxNode(baseNode, createdDevice);
             } else {
                 const iconCode = MapApp.mapManager.getDeviceIconUnicode(createdDevice);
                 visNode = { ...baseNode, shape: 'icon', icon: { face: "'Font Awesome 6 Free'", weight: "900", code: iconCode, size: parseInt(createdDevice.icon_size) || 50, color: MapApp.config.statusColorMap[createdDevice.status] || MapApp.config.statusColorMap.unknown } };

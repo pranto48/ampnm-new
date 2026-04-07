@@ -17,6 +17,155 @@ function initMap() {
     const {
         deviceManager
     } = MapApp;
+    const TOOLTIP_FIELDS_STORAGE_PREFIX = 'mapTooltipFields:';
+    const CONNECTION_TOOLTIP_FIELDS_STORAGE_PREFIX = 'mapConnectionTooltipFields:';
+    const TOOLTIP_DISPLAY_STORAGE_PREFIX = 'mapTooltipDisplay:';
+
+    const loadTooltipFieldsForMap = (mapId) => {
+        const defaults = MapApp.utils.getDefaultTooltipFields();
+        if (!mapId) return defaults;
+        try {
+            const raw = localStorage.getItem(`${TOOLTIP_FIELDS_STORAGE_PREFIX}${mapId}`);
+            if (!raw) return defaults;
+            const parsed = JSON.parse(raw);
+            return { ...defaults, ...(parsed || {}) };
+        } catch (error) {
+            console.warn('Failed to load tooltip field settings. Using defaults.', error);
+            return defaults;
+        }
+    };
+
+    const saveTooltipFieldsForMap = (mapId, settings) => {
+        if (!mapId) return;
+        localStorage.setItem(`${TOOLTIP_FIELDS_STORAGE_PREFIX}${mapId}`, JSON.stringify(settings));
+        state.tooltipFieldSettingsByMap[mapId] = settings;
+    };
+
+    const loadConnectionTooltipFieldsForMap = (mapId) => {
+        const defaults = MapApp.utils.getDefaultConnectionTooltipFields();
+        if (!mapId) return defaults;
+        try {
+            const raw = localStorage.getItem(`${CONNECTION_TOOLTIP_FIELDS_STORAGE_PREFIX}${mapId}`);
+            if (!raw) return defaults;
+            const parsed = JSON.parse(raw);
+            return { ...defaults, ...(parsed || {}) };
+        } catch (error) {
+            console.warn('Failed to load connection tooltip settings. Using defaults.', error);
+            return defaults;
+        }
+    };
+
+    const saveConnectionTooltipFieldsForMap = (mapId, settings) => {
+        if (!mapId) return;
+        localStorage.setItem(`${CONNECTION_TOOLTIP_FIELDS_STORAGE_PREFIX}${mapId}`, JSON.stringify(settings));
+        state.connectionTooltipFieldSettingsByMap[mapId] = settings;
+    };
+
+    const loadTooltipDisplayForMap = (mapId) => {
+        const defaults = MapApp.utils.getDefaultTooltipDisplaySettings();
+        if (!mapId) return defaults;
+        try {
+            const raw = localStorage.getItem(`${TOOLTIP_DISPLAY_STORAGE_PREFIX}${mapId}`);
+            if (!raw) return defaults;
+            const parsed = JSON.parse(raw);
+            return { ...defaults, ...(parsed || {}) };
+        } catch (error) {
+            console.warn('Failed to load tooltip display settings. Using defaults.', error);
+            return defaults;
+        }
+    };
+
+    const saveTooltipDisplayForMap = (mapId, settings) => {
+        if (!mapId) return;
+        localStorage.setItem(`${TOOLTIP_DISPLAY_STORAGE_PREFIX}${mapId}`, JSON.stringify(settings));
+        state.tooltipDisplaySettingsByMap[mapId] = settings;
+    };
+
+    const applyTooltipFieldCheckboxes = (settings) => {
+        const merged = { ...MapApp.utils.getDefaultTooltipFields(), ...(settings || {}) };
+        document.querySelectorAll('[data-tooltip-field]').forEach((checkbox) => {
+            checkbox.checked = merged[checkbox.dataset.tooltipField] !== false;
+        });
+    };
+
+    const readTooltipFieldCheckboxes = () => {
+        const settings = MapApp.utils.getDefaultTooltipFields();
+        document.querySelectorAll('[data-tooltip-field]').forEach((checkbox) => {
+            settings[checkbox.dataset.tooltipField] = !!checkbox.checked;
+        });
+        return settings;
+    };
+
+    const applyConnectionTooltipFieldCheckboxes = (settings) => {
+        const merged = { ...MapApp.utils.getDefaultConnectionTooltipFields(), ...(settings || {}) };
+        document.querySelectorAll('[data-connection-tooltip-field]').forEach((checkbox) => {
+            checkbox.checked = merged[checkbox.dataset.connectionTooltipField] !== false;
+        });
+    };
+
+    const readConnectionTooltipFieldCheckboxes = () => {
+        const settings = MapApp.utils.getDefaultConnectionTooltipFields();
+        document.querySelectorAll('[data-connection-tooltip-field]').forEach((checkbox) => {
+            settings[checkbox.dataset.connectionTooltipField] = !!checkbox.checked;
+        });
+        return settings;
+    };
+
+    const applyTooltipDisplayControls = (settings) => {
+        const merged = { ...MapApp.utils.getDefaultTooltipDisplaySettings(), ...(settings || {}) };
+        const density = document.getElementById('tooltipDensity');
+        const fontScale = document.getElementById('tooltipFontScale');
+        const fontScaleValue = document.getElementById('tooltipFontScaleValue');
+        const maxWidth = document.getElementById('tooltipMaxWidth');
+        if (density) density.value = merged.density || 'comfortable';
+        if (fontScale) fontScale.value = String(merged.font_scale ?? 100);
+        if (fontScaleValue) fontScaleValue.textContent = `${merged.font_scale ?? 100}%`;
+        if (maxWidth) maxWidth.value = String(merged.max_width ?? 320);
+    };
+
+    const readTooltipDisplayControls = () => {
+        const defaults = MapApp.utils.getDefaultTooltipDisplaySettings();
+        const density = document.getElementById('tooltipDensity')?.value || defaults.density;
+        const fontScale = Number(document.getElementById('tooltipFontScale')?.value ?? defaults.font_scale);
+        const maxWidth = Number(document.getElementById('tooltipMaxWidth')?.value ?? defaults.max_width);
+        return {
+            density: density === 'compact' ? 'compact' : 'comfortable',
+            font_scale: Math.min(130, Math.max(85, fontScale)),
+            max_width: Math.min(480, Math.max(260, maxWidth))
+        };
+    };
+
+    const refreshNodeTooltips = () => {
+        const updates = [];
+        state.nodes.forEach((node) => {
+            if (node?.deviceData) {
+                updates.push({ id: node.id, title: MapApp.utils.buildNodeTitle(node.deviceData) });
+            }
+        });
+        if (updates.length > 0) state.nodes.update(updates);
+    };
+
+    const refreshEdgeTooltips = () => {
+        const updates = [];
+        state.edges.forEach((edge) => {
+            const fromNode = state.nodes.get(edge.from);
+            const toNode = state.nodes.get(edge.to);
+            const srcDevice = fromNode?.deviceData || null;
+            const tgtDevice = toNode?.deviceData || null;
+            updates.push({ id: edge.id, title: MapApp.utils.buildEdgeTitle(edge, srcDevice, tgtDevice) });
+        });
+        if (updates.length > 0) state.edges.update(updates);
+    };
+
+    const tooltipFontScaleInput = document.getElementById('tooltipFontScale');
+    if (tooltipFontScaleInput) {
+        tooltipFontScaleInput.addEventListener('input', () => {
+            const tooltipFontScaleValue = document.getElementById('tooltipFontScaleValue');
+            if (tooltipFontScaleValue) {
+                tooltipFontScaleValue.textContent = `${tooltipFontScaleInput.value || 100}%`;
+            }
+        });
+    }
 
     // Cleanup function for SPA navigation
     window.cleanup = () => {
@@ -30,6 +179,7 @@ function initMap() {
             clearInterval(state.globalRefreshIntervalId);
             state.globalRefreshIntervalId = null;
         }
+        deviceManager.stopAgentPolling();
         if (state.network) {
             state.network.destroy();
             state.network = null;
@@ -66,18 +216,40 @@ function initMap() {
             e.preventDefault();
             const id = document.getElementById('edgeId').value;
             const connection_type = document.getElementById('connectionType').value;
+            const source_port_label = document.getElementById('edgeSourcePort').value || null;
+            const target_port_label = document.getElementById('edgeTargetPort').value || null;
             try {
-                await api.post('update_edge', { id, connection_type });
+                await api.post('update_edge', { id, connection_type, source_port_label, target_port_label });
                 closeModal('edgeModal');
-                state.edges.update({ id, connection_type, label: connection_type });
+                // Build label with port info
+                let edgeLabel = connection_type;
+                if (source_port_label && target_port_label) {
+                    edgeLabel = `${source_port_label} ↔ ${target_port_label}`;
+                } else if (source_port_label || target_port_label) {
+                    edgeLabel = `${source_port_label || '—'} ↔ ${target_port_label || '—'}`;
+                }
+                const existingEdge = state.edges.get(id);
+                const srcDevice = state.nodes.get(existingEdge?.from)?.deviceData || null;
+                const tgtDevice = state.nodes.get(existingEdge?.to)?.deviceData || null;
+                const edgeTitle = MapApp.utils.buildEdgeTitle({
+                    ...(existingEdge || {}),
+                    connection_type,
+                    source_port_label,
+                    target_port_label
+                }, srcDevice, tgtDevice);
+                state.edges.update({ id, connection_type, source_port_label, target_port_label, label: edgeLabel, title: edgeTitle });
                 window.notyf.success('Connection updated.');
                 // Trigger color update
-                MapApp.ui.updateEdgeColorsAndDashes();
+                MapApp.ui.updateAndAnimateEdges();
             } catch (error) {
                 console.error("Failed to update connection:", error);
                 window.notyf.error(error.message || "An error occurred while updating connection.");
             }
         });
+
+        // Port select change listeners for live preview
+        document.getElementById('edgeSourcePort').addEventListener('change', () => MapApp.ui._updatePortPreview());
+        document.getElementById('edgeTargetPort').addEventListener('change', () => MapApp.ui._updatePortPreview());
     } else {
         // Disable edge form elements for viewers
         if (els.edgeForm) {
@@ -152,30 +324,25 @@ function initMap() {
 
     // Only admin can export/import map
     if (window.userRole === 'admin') {
-        els.exportBtn.addEventListener('click', () => {
+        els.exportBtn.addEventListener('click', async () => {
             if (!state.currentMapId) {
                 window.notyf.error('No map selected to export.');
                 return;
             }
-            const mapName = els.mapSelector.options[els.mapSelector.selectedIndex].text;
-            const devices = state.nodes.get({ fields: ['id', 'deviceData'] }).map(node => ({
-                id: node.id,
-                ...node.deviceData
-            }));
-            const edges = state.edges.get({ fields: ['from', 'to', 'connection_type'] }).map(edge => ({
-                source_id: edge.from, // Map 'from' to 'source_id'
-                target_id: edge.to,   // Map 'to' to 'target_id'
-                connection_type: edge.connection_type
-            }));
-            const exportData = { devices, edges };
-            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exportData, null, 2));
-            const downloadAnchorNode = document.createElement('a');
-            downloadAnchorNode.setAttribute("href", dataStr);
-            downloadAnchorNode.setAttribute("download", `${mapName.replace(/\s+/g, '_')}_export.json`);
-            document.body.appendChild(downloadAnchorNode);
-            downloadAnchorNode.click();
-            downloadAnchorNode.remove();
-            window.notyf.success('Map exported successfully.');
+            const mapName = els.mapSelector.options[els.mapSelector.selectedIndex]?.text || 'map';
+            try {
+                const exportData = await api.get('export_map', { map_id: state.currentMapId });
+                const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exportData, null, 2));
+                const downloadAnchorNode = document.createElement('a');
+                downloadAnchorNode.setAttribute("href", dataStr);
+                downloadAnchorNode.setAttribute("download", `${mapName.replace(/\s+/g, '_')}_export.json`);
+                document.body.appendChild(downloadAnchorNode);
+                downloadAnchorNode.click();
+                downloadAnchorNode.remove();
+                window.notyf.success('Map exported successfully (devices, links, ports, cables).');
+            } catch (error) {
+                window.notyf.error(error.message || 'Failed to export map.');
+            }
         });
 
         els.importBtn.addEventListener('click', () => els.importFile.click());
@@ -187,9 +354,18 @@ function initMap() {
                 reader.onload = async (event) => {
                     try {
                         const data = JSON.parse(event.target.result);
-                        await api.post('import_map', { map_id: state.currentMapId, ...data });
+                        if (!Array.isArray(data.devices) || !Array.isArray(data.edges)) {
+                            throw new Error('Invalid import file: missing devices/edges arrays.');
+                        }
+                        await api.post('import_map', {
+                            map_id: state.currentMapId,
+                            devices: data.devices,
+                            edges: data.edges,
+                            switch_ports: Array.isArray(data.switch_ports) ? data.switch_ports : [],
+                            cables: Array.isArray(data.cables) ? data.cables : []
+                        });
                         await mapManager.switchMap(state.currentMapId);
-                        window.notyf.success('Map imported successfully.');
+                        window.notyf.success('Map imported successfully with links, ports, and cables.');
                     } catch (err) {
                         window.notyf.error('Failed to import map: ' + err.message);
                     }
@@ -265,7 +441,12 @@ function initMap() {
         }
     }
 
-    els.mapSelector.addEventListener('change', (e) => mapManager.switchMap(e.target.value));
+    els.mapSelector.addEventListener('change', (e) => {
+        state.tooltipFieldSettingsByMap[e.target.value] = loadTooltipFieldsForMap(e.target.value);
+        state.connectionTooltipFieldSettingsByMap[e.target.value] = loadConnectionTooltipFieldsForMap(e.target.value);
+        state.tooltipDisplaySettingsByMap[e.target.value] = loadTooltipDisplayForMap(e.target.value);
+        mapManager.switchMap(e.target.value);
+    });
     
     // Only admin can add edges
     if (window.userRole === 'admin') {
@@ -273,8 +454,46 @@ function initMap() {
             state.network.addEdgeMode();
             window.notyf.info('Click on a node to start a connection.');
         });
+
+        // Add Group Box button
+        els.addGroupBoxBtn.addEventListener('click', async () => {
+            if (!state.currentMapId) {
+                window.notyf.error('No map selected.');
+                return;
+            }
+            const name = prompt('Enter a name for the group box:', 'Group');
+            if (!name || !name.trim()) return;
+            try {
+                const viewPosition = state.network.getViewPosition();
+                const canvasPosition = state.network.canvas.DOMtoCanvas(viewPosition);
+                const newDevice = await api.post('create_device', {
+                    name: name.trim(),
+                    type: 'box',
+                    map_id: state.currentMapId,
+                    x: canvasPosition.x,
+                    y: canvasPosition.y,
+                    port_config: MapApp.utils.withUpdatedBoxStyle({}, MapApp.utils.getDefaultBoxStyle())
+                });
+                const baseNode = {
+                    id: newDevice.id,
+                    label: newDevice.name,
+                    title: newDevice.name,
+                    x: newDevice.x,
+                    y: newDevice.y,
+                    font: { color: 'white', size: 16, multi: true },
+                    deviceData: newDevice
+                };
+                const visNode = MapApp.utils.buildVisBoxNode(baseNode, newDevice);
+                state.nodes.add(visNode);
+                window.notyf.success(`Group box "${name.trim()}" added.`);
+            } catch (error) {
+                console.error('Failed to create group box:', error);
+                window.notyf.error(error.message || 'Failed to create group box.');
+            }
+        });
     } else {
         if (els.addEdgeBtn) els.addEdgeBtn.disabled = true;
+        if (els.addGroupBoxBtn) els.addGroupBoxBtn.disabled = true;
     }
 
     els.cancelEdgeBtn.addEventListener('click', () => closeModal('edgeModal'));
@@ -368,8 +587,12 @@ function initMap() {
                 document.getElementById('mapBgColor').value = currentMap.background_color || '#1e293b';
                 document.getElementById('mapBgColorHex').value = currentMap.background_color || '#1e293b';
                 document.getElementById('mapBgImageUrl').value = currentMap.background_image_url || '';
+                document.getElementById('offlineDelaySeconds').value = currentMap.offline_delay_seconds ?? 5;
                 els.publicViewToggle.checked = currentMap.public_view_enabled;
                 MapApp.mapManager.updatePublicViewLink(currentMap.id, currentMap.public_view_enabled);
+                applyTooltipFieldCheckboxes(loadTooltipFieldsForMap(currentMap.id));
+                applyConnectionTooltipFieldCheckboxes(loadConnectionTooltipFieldsForMap(currentMap.id));
+                applyTooltipDisplayControls(loadTooltipDisplayForMap(currentMap.id));
                 openModal('mapSettingsModal');
             }
         });
@@ -409,15 +632,22 @@ function initMap() {
 
         els.mapSettingsForm.addEventListener('submit', async (e) => {
             e.preventDefault();
+            const offlineDelay = parseInt(document.getElementById('offlineDelaySeconds').value, 10);
             const updates = {
                 background_color: document.getElementById('mapBgColorHex').value,
                 background_image_url: document.getElementById('mapBgImageUrl').value,
-                public_view_enabled: els.publicViewToggle.checked
+                public_view_enabled: els.publicViewToggle.checked,
+                offline_delay_seconds: (offlineDelay >= 1 && offlineDelay <= 300) ? offlineDelay : 5
             };
             try {
+                saveTooltipFieldsForMap(state.currentMapId, readTooltipFieldCheckboxes());
+                saveConnectionTooltipFieldsForMap(state.currentMapId, readConnectionTooltipFieldCheckboxes());
+                saveTooltipDisplayForMap(state.currentMapId, readTooltipDisplayControls());
                 await api.post('update_map', { id: state.currentMapId, updates });
                 await mapManager.loadMaps(); // Reload maps to get fresh data
                 await mapManager.switchMap(state.currentMapId); // Re-apply settings
+                refreshNodeTooltips();
+                refreshEdgeTooltips();
                 closeModal('mapSettingsModal');
                 window.notyf.success('Map settings saved.');
             } catch (error) {
@@ -428,9 +658,14 @@ function initMap() {
         els.resetMapBgBtn.addEventListener('click', async () => {
             try {
                 const updates = { background_color: null, background_image_url: null, public_view_enabled: false };
+                saveTooltipFieldsForMap(state.currentMapId, MapApp.utils.getDefaultTooltipFields());
+                saveConnectionTooltipFieldsForMap(state.currentMapId, MapApp.utils.getDefaultConnectionTooltipFields());
+                saveTooltipDisplayForMap(state.currentMapId, MapApp.utils.getDefaultTooltipDisplaySettings());
                 await api.post('update_map', { id: state.currentMapId, updates });
                 await mapManager.loadMaps();
                 await mapManager.switchMap(state.currentMapId);
+                refreshNodeTooltips();
+                refreshEdgeTooltips();
                 closeModal('mapSettingsModal');
                 window.notyf.success('Map background and public view reset to default.');
             } catch (error) {
@@ -556,6 +791,9 @@ function initMap() {
 
     // Initial Load
     (async () => {
+        // Start agent registration polling for real-time notifications
+        deviceManager.startAgentPolling();
+
         // Set live refresh to ON by default for viewers
         if (window.userRole === 'viewer') {
             els.liveRefreshToggle.checked = true;
@@ -576,6 +814,10 @@ function initMap() {
         
         if (initialMapId) {
             els.mapSelector.value = initialMapId;
+            state.tooltipFieldSettingsByMap[initialMapId] = loadTooltipFieldsForMap(initialMapId);
+            state.connectionTooltipFieldSettingsByMap[initialMapId] = loadConnectionTooltipFieldsForMap(initialMapId);
+            state.tooltipDisplaySettingsByMap[initialMapId] = loadTooltipDisplayForMap(initialMapId);
+            applyTooltipDisplayControls(state.tooltipDisplaySettingsByMap[initialMapId]);
             await mapManager.switchMap(initialMapId);
             const deviceToEdit = urlParams.get('edit_device_id');
             if (deviceToEdit && state.nodes.get(deviceToEdit)) {

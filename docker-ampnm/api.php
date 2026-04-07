@@ -4,6 +4,7 @@ require_once 'includes/functions.php';
 header('Content-Type: application/json');
 
 $action = $_GET['action'] ?? '';
+$handler = $_GET['handler'] ?? '';
 $input = json_decode(file_get_contents('php://input'), true) ?? [];
 
 try {
@@ -111,6 +112,11 @@ try {
         'health', 'get_current_license_info',
         // Host metrics viewing
         'get_latest_metrics', 'get_metrics_history', 'get_all_hosts',
+        // Floor plan viewing
+        'get_floor_plans', 'get_racks', 'get_panels', 'get_switch_ports', 'get_cables', 'get_devices',
+        'get_floor_plan_devices', 'get_annotations',
+        // Port usage
+        'get_device_used_ports',
     ];
 
     // Define specific POST actions that 'viewer' role can perform
@@ -146,15 +152,18 @@ try {
     // Group actions by handler
     $pingActions = ['manual_ping', 'scan_network', 'ping_device', 'get_ping_history'];
     $deviceActions = ['get_devices', 'create_device', 'update_device', 'delete_device', 'copy_device', 'get_device_details', 'check_device', 'check_all_devices_globally', 'get_device_uptime', 'upload_device_icon', 'import_devices', 'update_device_status_by_ip']; // ping_all_devices removed
-    $mapActions = ['get_maps', 'create_map', 'delete_map', 'get_edges', 'create_edge', 'update_edge', 'delete_edge', 'import_map', 'update_map', 'upload_map_background'];
+    $mapActions = ['get_maps', 'create_map', 'delete_map', 'get_edges', 'create_edge', 'update_edge', 'delete_edge', 'export_map', 'import_map', 'update_map', 'upload_map_background', 'get_device_used_ports'];
     $dashboardActions = ['get_dashboard_data'];
     $userActions = ['get_users', 'create_user', 'delete_user', 'update_user_role', 'update_user_password'];
     $logActions = ['get_status_logs'];
-    $notificationActions = ['get_smtp_settings', 'save_smtp_settings', 'get_device_subscriptions', 'save_device_subscription', 'delete_device_subscription', 'get_all_devices_for_subscriptions'];
+    $notificationActions = ['get_smtp_settings', 'save_smtp_settings', 'send_test_email', 'get_device_subscriptions', 'save_device_subscription', 'delete_device_subscription', 'get_all_devices_for_subscriptions'];
     $licenseActions = ['get_current_license_info', 'update_app_license_key', 'force_license_recheck']; // Added license actions
     $metricsActions = [
         'get_latest_metrics', 'get_metrics_history', 'get_all_hosts',
         'get_agent_tokens', 'create_agent_token', 'delete_agent_token', 'toggle_agent_token',
+        'create_device_from_host', 'register_host_ip', 'pull_device_by_ip',
+        'get_alert_settings', 'save_alert_settings',
+        'get_host_override',
         'get_all_host_overrides', 'save_host_override', 'delete_host_override',
         'export_host_overrides', 'import_host_overrides',
     ];
@@ -177,6 +186,9 @@ try {
         require __DIR__ . '/api/handlers/license_handler.php';
     } elseif (in_array($action, $metricsActions)) {
         require __DIR__ . '/api/handlers/metrics_handler.php';
+    } elseif ($handler === 'floor_plan') {
+        require __DIR__ . '/api/handlers/floor_plan_handler.php';
+        echo json_encode(handleFloorPlanAction($action, $input, $pdo));
     } elseif ($action === 'health') {
         echo json_encode(['status' => 'ok', 'timestamp' => date('c')]);
     } else {

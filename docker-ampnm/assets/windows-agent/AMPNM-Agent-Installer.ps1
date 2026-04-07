@@ -11,7 +11,7 @@
     3. Configures automatic startup and recovery
 
 .PARAMETER ServerUrl
-    The full URL to the AMPNM metrics endpoint (e.g., http://192.168.1.100:2266/docker-ampnm/api/agent/windows-metrics)
+    The full URL to the AMPNM metrics endpoint (e.g., http://192.168.1.100:2266/api/agent/metrics)
 
 .PARAMETER AgentToken
     The authentication token from the AMPNM Agent Tokens management page
@@ -23,7 +23,7 @@
     Remove the agent service and files
 
 .EXAMPLE
-    .\AMPNM-Agent-Installer.ps1 -ServerUrl "http://192.168.1.100:2266/docker-ampnm/api/agent/windows-metrics" -AgentToken "your-token-here"
+    .\AMPNM-Agent-Installer.ps1 -ServerUrl "http://192.168.1.100:2266/api/agent/metrics" -AgentToken "your-token-here"
 
 .EXAMPLE
     .\AMPNM-Agent-Installer.ps1 -Uninstall
@@ -49,7 +49,12 @@ $LogPath = "$InstallPath\logs"
 $ScriptPath = "$InstallPath\AMPNM-Monitor.ps1"
 $ConfigPath = "$InstallPath\config.json"
 $NssmPath = "$InstallPath\nssm.exe"
-$NssmUrl = "https://nssm.cc/release/nssm-2.24.zip"
+$NssmUrls = @(
+    "https://github.com/homebridge/nssm/releases/download/2.24-101-g897c7ad/nssm_x64.exe",
+    "https://nssm.cc/release/nssm-2.24.zip",
+    "https://github.com/nssm/nssm/releases/download/2.24/nssm-2.24.zip"
+)
+$LocalNssmPath = "$PSScriptRoot\nssm.exe"
 
 function Write-Status {
     param([string]$Message, [string]$Type = "Info")
@@ -67,39 +72,57 @@ function Install-NSSM {
         Write-Status "NSSM already installed" "Success"
         return $true
     }
-    
-    Write-Status "Downloading NSSM (service manager)..."
-    $zipPath = "$InstallPath\nssm.zip"
-    
-    try {
-        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-        Invoke-WebRequest -Uri $NssmUrl -OutFile $zipPath -UseBasicParsing
-        
-        Expand-Archive -Path $zipPath -DestinationPath "$InstallPath\nssm-temp" -Force
-        
-        # Find the correct nssm.exe based on architecture
-        $arch = if ([Environment]::Is64BitOperatingSystem) { "win64" } else { "win32" }
-        $nssmExe = Get-ChildItem -Path "$InstallPath\nssm-temp" -Recurse -Filter "nssm.exe" | 
-                   Where-Object { $_.FullName -like "*$arch*" } | 
-                   Select-Object -First 1
-        
-        if ($nssmExe) {
-            Copy-Item $nssmExe.FullName $NssmPath -Force
-            Write-Status "NSSM installed successfully" "Success"
-        } else {
-            throw "Could not find nssm.exe"
-        }
-        
-        # Cleanup
-        Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
-        Remove-Item "$InstallPath\nssm-temp" -Recurse -Force -ErrorAction SilentlyContinue
-        
+
+    if (Test-Path $LocalNssmPath) {
+        Copy-Item $LocalNssmPath $NssmPath -Force
+        Write-Status "NSSM copied from local installer bundle" "Success"
         return $true
     }
-    catch {
-        Write-Status "Failed to install NSSM: $_" "Error"
-        return $false
+
+    Write-Status "NSSM not found locally. Trying online download..." "Warning"
+    $zipPath = "$InstallPath\nssm.zip"
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+    foreach ($nssmUrl in $NssmUrls) {
+        try {
+            Write-Status "Trying NSSM source: $nssmUrl"
+            if ($nssmUrl -like "*.exe") {
+                Invoke-WebRequest -Uri $nssmUrl -OutFile $NssmPath -UseBasicParsing
+                if (Test-Path $NssmPath) {
+                    Write-Status "NSSM installed successfully from direct executable" "Success"
+                    return $true
+                }
+                throw "Downloaded direct executable but file was not found at $NssmPath"
+            }
+
+            Invoke-WebRequest -Uri $nssmUrl -OutFile $zipPath -UseBasicParsing
+
+            Expand-Archive -Path $zipPath -DestinationPath "$InstallPath\nssm-temp" -Force
+
+            $arch = if ([Environment]::Is64BitOperatingSystem) { "win64" } else { "win32" }
+            $nssmExe = Get-ChildItem -Path "$InstallPath\nssm-temp" -Recurse -Filter "nssm.exe" |
+                       Where-Object { $_.FullName -like "*$arch*" } |
+                       Select-Object -First 1
+
+            if ($nssmExe) {
+                Copy-Item $nssmExe.FullName $NssmPath -Force
+                Write-Status "NSSM installed successfully" "Success"
+                Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
+                Remove-Item "$InstallPath\nssm-temp" -Recurse -Force -ErrorAction SilentlyContinue
+                return $true
+            }
+
+            throw "Downloaded archive but could not find nssm.exe"
+        }
+        catch {
+            Write-Status "NSSM source failed: $nssmUrl ($($_.Exception.Message))" "Warning"
+            Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
+            Remove-Item "$InstallPath\nssm-temp" -Recurse -Force -ErrorAction SilentlyContinue
+        }
     }
+
+    Write-Status "Falling back to native Windows service installation (New-Service)." "Warning"
+    return $false
 }
 
 function Create-MonitorScript {
@@ -116,6 +139,17 @@ $config = Get-Content $ConfigPath | ConvertFrom-Json
 $ServerUrl = $config.ServerUrl
 $AgentToken = $config.AgentToken
 $Interval = $config.Interval
+$CurrentInterval = [math]::Max(15, [int]$Interval)
+$LogDir = "$env:ProgramData\AMPNM-Agent\logs"
+$LogFile = "$LogDir\agent.log"
+
+if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir -Force | Out-Null }
+
+function Write-Log {
+    param([string]$Message)
+    $line = "$(Get-Date -Format yyyy-MM-dd HH:mm:ss) - $Message"
+    Add-Content -Path $LogFile -Value $line
+}
 
 function Get-SystemMetrics {
     $metrics = @{
@@ -211,30 +245,60 @@ function Send-Metrics {
             if (-not $deviceMatched) {
                 $deviceMatched = 'Not linked'
             }
-            Write-Output "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - Metrics sent successfully. Device: $deviceMatched"
+            if ($response.sync_interval_seconds) {
+                $suggested = [int]$response.sync_interval_seconds
+                if ($suggested -ge 15 -and $suggested -le 3600) {
+                    $script:CurrentInterval = $suggested
+                }
+            }
+            Write-Log "Metrics sent successfully. Device: $deviceMatched. Next sync: $script:CurrentInterval sec"
         } else {
-            Write-Output "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - Server returned: $($response | ConvertTo-Json -Compress)"
+            Write-Log "Server returned: $($response | ConvertTo-Json -Compress)"
         }
     }
     catch {
-        Write-Output "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - Error sending metrics: $_"
+        Write-Log "Error sending metrics: $_"
+    }
+}
+
+function Sync-DeviceMapping {
+    param($Metrics)
+
+    if (-not $Metrics.host_ip) { return }
+
+    try {
+        $headers = @{ 'X-Agent-Token' = $AgentToken }
+        $hostIpEscaped = [uri]::EscapeDataString([string]$Metrics.host_ip)
+        $hostNameEscaped = [uri]::EscapeDataString([string]$Metrics.host_name)
+        $syncUrl = "$ServerUrl/device-by-ip?host_ip=$hostIpEscaped&host_name=$hostNameEscaped"
+        $sync = Invoke-RestMethod -Uri $syncUrl -Method Get -Headers $headers -TimeoutSec 15
+
+        if ($sync.sync_interval_seconds) {
+            $suggested = [int]$sync.sync_interval_seconds
+            if ($suggested -ge 15 -and $suggested -le 3600) {
+                $script:CurrentInterval = $suggested
+            }
+        }
+    } catch {
+        Write-Log "Device sync warning: $_"
     }
 }
 
 # Main loop
-Write-Output "AMPNM Agent started. Collecting metrics every $Interval seconds..."
-Write-Output "Server: $ServerUrl"
+Write-Log "AMPNM Agent started. Collecting metrics every $Interval seconds..."
+Write-Log "Server: $ServerUrl"
 
 while ($true) {
     try {
         $metrics = Get-SystemMetrics
+        Sync-DeviceMapping -Metrics $metrics
         Send-Metrics -Metrics $metrics
     }
     catch {
-        Write-Output "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - Collection error: $_"
+        Write-Log "Collection error: $_"
     }
     
-    Start-Sleep -Seconds $Interval
+    Start-Sleep -Seconds $script:CurrentInterval
 }
 '@
     
@@ -254,60 +318,75 @@ function Create-Config {
 }
 
 function Install-Service {
-    # Check if service exists
     $existingService = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
     if ($existingService) {
         Write-Status "Removing existing service..."
-        & $NssmPath stop $ServiceName 2>$null
-        & $NssmPath remove $ServiceName confirm 2>$null
+        try { Stop-Service -Name $ServiceName -Force -ErrorAction SilentlyContinue } catch {}
+        sc.exe delete $ServiceName | Out-Null
         Start-Sleep -Seconds 2
     }
-    
-    # Install service using NSSM
-    Write-Status "Installing Windows Service..."
-    & $NssmPath install $ServiceName powershell.exe "-ExecutionPolicy Bypass -NoProfile -File `"$ScriptPath`" -ConfigPath `"$ConfigPath`""
-    
-    # Configure service
-    & $NssmPath set $ServiceName DisplayName "AMPNM Monitoring Agent"
-    & $NssmPath set $ServiceName Description "Sends system metrics to AMPNM network monitor"
-    & $NssmPath set $ServiceName Start SERVICE_AUTO_START
-    & $NssmPath set $ServiceName AppStdout "$LogPath\agent.log"
-    & $NssmPath set $ServiceName AppStderr "$LogPath\agent-error.log"
-    & $NssmPath set $ServiceName AppRotateFiles 1
-    & $NssmPath set $ServiceName AppRotateBytes 1048576
-    
-    # Set recovery options (restart on failure)
-    & $NssmPath set $ServiceName AppExit Default Restart
-    & $NssmPath set $ServiceName AppRestartDelay 10000
-    
-    # Start the service
-    Write-Status "Starting service..."
-    & $NssmPath start $ServiceName
-    
+
+    $nssmAvailable = Install-NSSM
+
+    if ($nssmAvailable -and (Test-Path $NssmPath)) {
+        Write-Status "Installing Windows Service with NSSM..."
+        & $NssmPath install $ServiceName powershell.exe "-ExecutionPolicy Bypass -NoProfile -File `"$ScriptPath`" -ConfigPath `"$ConfigPath`""
+        & $NssmPath set $ServiceName DisplayName "AMPNM Monitoring Agent"
+        & $NssmPath set $ServiceName Description "Sends system metrics to AMPNM network monitor"
+        & $NssmPath set $ServiceName Start SERVICE_AUTO_START
+        & $NssmPath set $ServiceName AppStdout "$LogPath\agent.log"
+        & $NssmPath set $ServiceName AppStderr "$LogPath\agent-error.log"
+        & $NssmPath set $ServiceName AppRotateFiles 1
+        & $NssmPath set $ServiceName AppRotateBytes 1048576
+        & $NssmPath set $ServiceName AppExit Default Restart
+        & $NssmPath set $ServiceName AppRestartDelay 10000
+        & $NssmPath start $ServiceName
+    }
+    else {
+        Write-Status "Installing Windows Service with native New-Service..."
+        $binaryPathName = "`"$PSHOME\powershell.exe`" -ExecutionPolicy Bypass -NoProfile -File `"$ScriptPath`" -ConfigPath `"$ConfigPath`""
+
+        try {
+            New-Service -Name $ServiceName -BinaryPathName $binaryPathName -DisplayName "AMPNM Monitoring Agent" -Description "Sends system metrics to AMPNM network monitor" -StartupType Automatic -ErrorAction Stop | Out-Null
+            sc.exe failure $ServiceName reset= 86400 actions= restart/10000/restart/10000/restart/10000 | Out-Null
+            Start-Service -Name $ServiceName -ErrorAction Stop
+        }
+        catch {
+            Write-Status "Native service install/start failed: $($_.Exception.Message)" "Warning"
+        }
+    }
+
     Start-Sleep -Seconds 3
     $service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
     if ($service -and $service.Status -eq 'Running') {
         Write-Status "Service installed and running successfully!" "Success"
         return $true
-    } else {
-        Write-Status "Service installed but may not be running. Check logs at $LogPath" "Warning"
-        return $true
     }
+
+    if ($service) {
+        Write-Status "Current service state: $($service.Status)" "Warning"
+        try {
+            $svcDetail = sc.exe queryex $ServiceName
+            if ($svcDetail) {
+                Write-Host ($svcDetail | Out-String)
+            }
+        } catch { }
+    }
+
+    Write-Status "Service installed but may not be running. Check logs at $LogPath" "Warning"
+    return $false
 }
 
 function Uninstall-Agent {
     Write-Status "Uninstalling AMPNM Agent..."
     
     # Stop and remove service
+    try { Stop-Service -Name $ServiceName -Force -ErrorAction SilentlyContinue } catch {}
     if (Test-Path $NssmPath) {
-        & $NssmPath stop $ServiceName 2>$null
         & $NssmPath remove $ServiceName confirm 2>$null
-        Write-Status "Service removed" "Success"
-    } else {
-        # Try with sc.exe
-        sc.exe stop $ServiceName 2>$null
-        sc.exe delete $ServiceName 2>$null
     }
+    sc.exe delete $ServiceName 2>$null | Out-Null
+    Write-Status "Service removed" "Success"
     
     # Remove files
     if (Test-Path $InstallPath) {
@@ -336,7 +415,7 @@ if (-not $ServerUrl) {
     Write-Status "ServerUrl is required for installation" "Error"
     Write-Host ""
     Write-Host "Usage:" -ForegroundColor Yellow
-    Write-Host "  Install: .\AMPNM-Agent-Installer.ps1 -ServerUrl 'http://your-server:2266/docker-ampnm/api/agent/windows-metrics' -AgentToken 'your-token'" -ForegroundColor Gray
+    Write-Host "  Install: .\AMPNM-Agent-Installer.ps1 -ServerUrl 'http://your-server:2266/api/agent/metrics' -AgentToken 'your-token'" -ForegroundColor Gray
     Write-Host "  Uninstall: .\AMPNM-Agent-Installer.ps1 -Uninstall" -ForegroundColor Gray
     exit 1
 }
@@ -350,12 +429,6 @@ if (-not $AgentToken) {
 # Create directories
 New-Item -ItemType Directory -Path $InstallPath -Force | Out-Null
 New-Item -ItemType Directory -Path $LogPath -Force | Out-Null
-
-# Install NSSM
-if (-not (Install-NSSM)) {
-    Write-Status "Failed to install NSSM. Cannot continue." "Error"
-    exit 1
-}
 
 # Create files
 Create-Config
@@ -378,5 +451,7 @@ if (Install-Service) {
     Write-Host "To view logs: Get-Content $LogPath\agent.log -Tail 50" -ForegroundColor Yellow
     Write-Host "To uninstall: .\AMPNM-Agent-Installer.ps1 -Uninstall" -ForegroundColor Yellow
 } else {
-    Write-Status "Installation completed with warnings" "Warning"
+    Write-Status "Installation completed with warnings (service is not running)." "Warning"
+    Write-Host "Try running manually to inspect errors:" -ForegroundColor Yellow
+    Write-Host "  powershell -ExecutionPolicy Bypass -NoProfile -File `"$ScriptPath`" -ConfigPath `"$ConfigPath`"" -ForegroundColor Gray
 }
